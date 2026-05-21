@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard Impulso en Tienda</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+
+<body>
+  <header class="app-header">
+    <div>
+      <h1>Impulso en Tienda</h1>
+      <p>Seguimiento comercial por tienda</p>
+    </div>
+    <div class="update-box">
+      <span>Última actualización</span>
+      <strong id="ultimaActualizacion">Cargando...</strong>
+    </div>
+  </header>
+
+  <main class="container">
+    <section class="selector-card">
+      <label for="storeSelect">Selecciona tu tienda</label>
+      <select id="storeSelect">
+        <option value="">Cargando tiendas...</option>
+      </select>
+    </section>
+
+    <section class="summary-grid">
+      <article class="summary-card">
+        <span>Cumplimiento meta</span>
+        <strong id="cumplimientoMeta">-</strong>
+        <small id="ventaMetaTexto">Venta / Meta</small>
+      </article>
+
+      <article class="summary-card">
+        <span>Inventario total</span>
+        <strong id="inventarioTotal">-</strong>
+        <small>Unidades en tienda</small>
+      </article>
+
+      <article class="summary-card alert-card">
+        <span>Referencias críticas</span>
+        <strong id="referenciasCriticas">-</strong>
+        <small>Sin venta, crítico y lento</small>
+      </article>
+    </section>
+
+    <section class="section-block">
+      <div class="section-title">
+        <h2>Desempeño por mundo y sección</h2>
+        <p>Prioriza dónde enfocar la revisión en tienda</p>
+      </div>
+
+      <div id="mundoSeccionContainer" class="category-list">
+        <p class="empty-state">Selecciona una tienda para ver el desempeño.</p>
+      </div>
+    </section>
+
+    <section class="section-block">
+      <div class="section-title row-title">
+        <div>
+          <h2>Referencias críticas</h2>
+          <p>Productos que requieren gestión en tienda</p>
+        </div>
+        <span id="contadorCriticas" class="badge">0</span>
+      </div>
+
+      <div id="referenciasContainer" class="reference-list">
+        <p class="empty-state">Selecciona una tienda para ver referencias críticas.</p>
+      </div>
+    </section>
+  </main>
+
+  <div id="loadingOverlay" class="loading-overlay">
+    <div class="loader"></div>
+    <p>Cargando información...</p>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
