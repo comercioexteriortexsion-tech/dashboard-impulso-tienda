@@ -74,16 +74,25 @@ function renderDashboard(storeName) {
   renderCriticalReferences(storeData);
 }
 
+/**
+ * Una referencia solo se considera crítica visible si:
+ * 1. Su estado está en Sin venta, Crítico o Lento.
+ * 2. Tiene más de 15 unidades en inventario.
+ */
+function isVisibleCriticalReference(item) {
+  return (
+    CRITICAL_STATES.includes(item.estado_referencia) &&
+    toNumber(item.inventario_unidades) > PRIORITY_INVENTORY_MIN
+  );
+}
+
 function renderSummary(data) {
   const cumplimiento = getFirstNumber(data, 'cumplimiento_meta');
   const ventaMes = getFirstNumber(data, 'venta_pesos_mes');
   const metaMes = getFirstNumber(data, 'meta_venta_pesos');
   const inventarioTotal = sum(data, 'inventario_unidades');
 
-  const alertasPrincipales = data.filter(item =>
-    CRITICAL_STATES.includes(item.estado_referencia) &&
-    toNumber(item.inventario_unidades) > PRIORITY_INVENTORY_MIN
-  ).length;
+  const referenciasCriticasVisibles = data.filter(isVisibleCriticalReference).length;
 
   document.getElementById('cumplimientoMeta').textContent =
     cumplimiento === null ? '-' : formatPercent(cumplimiento);
@@ -95,10 +104,10 @@ function renderSummary(data) {
     formatNumber(inventarioTotal);
 
   document.getElementById('referenciasCriticas').textContent =
-    formatNumber(alertasPrincipales);
+    formatNumber(referenciasCriticasVisibles);
 
   document.getElementById('contadorCriticas').textContent =
-    formatNumber(alertasPrincipales);
+    formatNumber(referenciasCriticasVisibles);
 }
 
 function renderMundoSeccion(data) {
@@ -121,8 +130,7 @@ function renderMundoSeccion(data) {
         inventario: 0,
         ventaUnidades: 0,
         totalReferencias: 0,
-        referenciasCriticas: 0,
-        alertasPrincipales: 0
+        referenciasCriticas: 0
       };
     }
 
@@ -130,22 +138,15 @@ function renderMundoSeccion(data) {
     grouped[key].ventaUnidades += toNumber(item.venta_unidades);
     grouped[key].totalReferencias += 1;
 
-    if (CRITICAL_STATES.includes(item.estado_referencia)) {
+    if (isVisibleCriticalReference(item)) {
       grouped[key].referenciasCriticas += 1;
-    }
-
-    if (
-      CRITICAL_STATES.includes(item.estado_referencia) &&
-      toNumber(item.inventario_unidades) > PRIORITY_INVENTORY_MIN
-    ) {
-      grouped[key].alertasPrincipales += 1;
     }
   });
 
   const rows = Object.values(grouped)
     .map(group => {
       const porcentajeCriticas =
-        group.totalReferencias === 0 ? 0 : group.alertasPrincipales / group.totalReferencias;
+        group.totalReferencias === 0 ? 0 : group.referenciasCriticas / group.totalReferencias;
 
       return {
         ...group,
@@ -153,7 +154,13 @@ function renderMundoSeccion(data) {
         estadoGrupo: getEstadoGrupo(porcentajeCriticas)
       };
     })
-    .sort((a, b) => b.alertasPrincipales - a.alertasPrincipales || b.porcentajeCriticas - a.porcentajeCriticas);
+    .filter(row => row.referenciasCriticas > 0)
+    .sort((a, b) => b.referenciasCriticas - a.referenciasCriticas || b.porcentajeCriticas - a.porcentajeCriticas);
+
+  if (!rows.length) {
+    container.innerHTML = '<p class="empty-state">No hay zonas con alertas mayores a 15 unidades.</p>';
+    return;
+  }
 
   container.innerHTML = rows.map(row => `
     <article class="category-card">
@@ -174,7 +181,7 @@ function renderMundoSeccion(data) {
 
       <div class="category-metric">
         <span>Alertas +15 und.</span>
-        <strong>${formatNumber(row.alertasPrincipales)}</strong>
+        <strong>${formatNumber(row.referenciasCriticas)}</strong>
       </div>
 
       <div class="category-metric">
@@ -193,41 +200,28 @@ function renderCriticalReferences(data) {
   const container = document.getElementById('referenciasContainer');
 
   const criticalItems = data
-    .filter(item => CRITICAL_STATES.includes(item.estado_referencia))
+    .filter(isVisibleCriticalReference)
     .sort(compareCriticalReferences);
 
-  const priorityItems = criticalItems.filter(item =>
-    toNumber(item.inventario_unidades) > PRIORITY_INVENTORY_MIN
-  );
-
-  const secondaryItems = criticalItems.filter(item =>
-    toNumber(item.inventario_unidades) <= PRIORITY_INVENTORY_MIN
-  );
-
-  const orderedItems = [...priorityItems, ...secondaryItems];
-
-  if (!orderedItems.length) {
-    container.innerHTML = '<p class="empty-state">No hay productos para revisar en esta tienda.</p>';
+  if (!criticalItems.length) {
+    container.innerHTML = '<p class="empty-state">No hay productos con alerta mayor a 15 unidades en esta tienda.</p>';
     return;
   }
 
   const itemsToShow = showAllProducts
-    ? orderedItems
-    : orderedItems.slice(0, INITIAL_PRODUCT_LIMIT);
+    ? criticalItems
+    : criticalItems.slice(0, INITIAL_PRODUCT_LIMIT);
 
-  const hiddenCount = orderedItems.length - itemsToShow.length;
+  const hiddenCount = criticalItems.length - itemsToShow.length;
 
   const note = `
     <div class="info-note">
-      Se priorizan productos con más de ${PRIORITY_INVENTORY_MIN} unidades en inventario.
-      Los productos con 15 unidades o menos quedan como seguimiento secundario.
+      Se muestran únicamente productos críticos con más de ${PRIORITY_INVENTORY_MIN} unidades en inventario.
     </div>
   `;
 
   const cards = itemsToShow.map(item => {
     const colorClass = getColorClass(item.color_estado);
-    const inventory = toNumber(item.inventario_unidades);
-    const isPriority = inventory > PRIORITY_INVENTORY_MIN;
 
     return `
       <article class="reference-card ${colorClass}">
@@ -236,8 +230,8 @@ function renderCriticalReferences(data) {
             <h3>${escapeHtml(item.referencia)} - ${escapeHtml(item.descripcion)}</h3>
             <span>${escapeHtml(item.mundo)} / ${escapeHtml(item.seccion)}</span>
             <br>
-            <span class="priority-label ${isPriority ? 'priority-high' : 'priority-low'}">
-              ${isPriority ? 'Alerta principal +15 und.' : 'Seguimiento secundario'}
+            <span class="priority-label priority-high">
+              Alerta principal +15 und.
             </span>
           </div>
           <div class="reference-status">${escapeHtml(item.estado_referencia)}</div>
@@ -281,7 +275,7 @@ function renderCriticalReferences(data) {
         </button>
       </div>
     `
-    : showAllProducts && orderedItems.length > INITIAL_PRODUCT_LIMIT
+    : showAllProducts && criticalItems.length > INITIAL_PRODUCT_LIMIT
       ? `
         <div class="load-more-box">
           <button class="load-more-button" onclick="showLessProducts()">
@@ -310,13 +304,6 @@ function compareCriticalReferences(a, b) {
     'Crítico': 2,
     'Lento': 3
   };
-
-  const aPriorityInventory = toNumber(a.inventario_unidades) > PRIORITY_INVENTORY_MIN ? 1 : 0;
-  const bPriorityInventory = toNumber(b.inventario_unidades) > PRIORITY_INVENTORY_MIN ? 1 : 0;
-
-  if (aPriorityInventory !== bPriorityInventory) {
-    return bPriorityInventory - aPriorityInventory;
-  }
 
   const priorityA = priority[a.estado_referencia] || 99;
   const priorityB = priority[b.estado_referencia] || 99;
