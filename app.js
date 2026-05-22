@@ -1,8 +1,12 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwCfspSz1mtp2mrNrqm9fezzLArIMv7Wzxbg3vqYMxZ4xvUbrLtc0F6JUnyAB5eFucO/exec';
 
 let dashboardData = [];
+let currentStoreName = '';
+let showAllProducts = false;
 
 const CRITICAL_STATES = ['Sin venta', 'Crítico', 'Lento'];
+const PRIORITY_INVENTORY_MIN = 15;
+const INITIAL_PRODUCT_LIMIT = 10;
 
 const storeSelect = document.getElementById('storeSelect');
 const loadingOverlay = document.getElementById('loadingOverlay');
@@ -28,12 +32,15 @@ async function initDashboard() {
     loadStoreSelector(dashboardData);
 
     storeSelect.addEventListener('change', () => {
-      renderDashboard(storeSelect.value);
+      showAllProducts = false;
+      currentStoreName = storeSelect.value;
+      renderDashboard(currentStoreName);
     });
 
     if (storeSelect.options.length > 1) {
       storeSelect.selectedIndex = 1;
-      renderDashboard(storeSelect.value);
+      currentStoreName = storeSelect.value;
+      renderDashboard(currentStoreName);
     }
 
   } catch (error) {
@@ -72,7 +79,11 @@ function renderSummary(data) {
   const ventaMes = getFirstNumber(data, 'venta_pesos_mes');
   const metaMes = getFirstNumber(data, 'meta_venta_pesos');
   const inventarioTotal = sum(data, 'inventario_unidades');
-  const criticas = data.filter(item => CRITICAL_STATES.includes(item.estado_referencia)).length;
+
+  const alertasPrincipales = data.filter(item =>
+    CRITICAL_STATES.includes(item.estado_referencia) &&
+    toNumber(item.inventario_unidades) > PRIORITY_INVENTORY_MIN
+  ).length;
 
   document.getElementById('cumplimientoMeta').textContent =
     cumplimiento === null ? '-' : formatPercent(cumplimiento);
@@ -84,10 +95,10 @@ function renderSummary(data) {
     formatNumber(inventarioTotal);
 
   document.getElementById('referenciasCriticas').textContent =
-    formatNumber(criticas);
+    formatNumber(alertasPrincipales);
 
   document.getElementById('contadorCriticas').textContent =
-    formatNumber(criticas);
+    formatNumber(alertasPrincipales);
 }
 
 function renderMundoSeccion(data) {
@@ -110,7 +121,8 @@ function renderMundoSeccion(data) {
         inventario: 0,
         ventaUnidades: 0,
         totalReferencias: 0,
-        referenciasCriticas: 0
+        referenciasCriticas: 0,
+        alertasPrincipales: 0
       };
     }
 
@@ -121,12 +133,19 @@ function renderMundoSeccion(data) {
     if (CRITICAL_STATES.includes(item.estado_referencia)) {
       grouped[key].referenciasCriticas += 1;
     }
+
+    if (
+      CRITICAL_STATES.includes(item.estado_referencia) &&
+      toNumber(item.inventario_unidades) > PRIORITY_INVENTORY_MIN
+    ) {
+      grouped[key].alertasPrincipales += 1;
+    }
   });
 
   const rows = Object.values(grouped)
     .map(group => {
       const porcentajeCriticas =
-        group.totalReferencias === 0 ? 0 : group.referenciasCriticas / group.totalReferencias;
+        group.totalReferencias === 0 ? 0 : group.alertasPrincipales / group.totalReferencias;
 
       return {
         ...group,
@@ -134,7 +153,7 @@ function renderMundoSeccion(data) {
         estadoGrupo: getEstadoGrupo(porcentajeCriticas)
       };
     })
-    .sort((a, b) => b.porcentajeCriticas - a.porcentajeCriticas);
+    .sort((a, b) => b.alertasPrincipales - a.alertasPrincipales || b.porcentajeCriticas - a.porcentajeCriticas);
 
   container.innerHTML = rows.map(row => `
     <article class="category-card">
@@ -154,12 +173,12 @@ function renderMundoSeccion(data) {
       </div>
 
       <div class="category-metric">
-        <span>Críticas</span>
-        <strong>${formatNumber(row.referenciasCriticas)}</strong>
+        <span>Alertas +15 und.</span>
+        <strong>${formatNumber(row.alertasPrincipales)}</strong>
       </div>
 
       <div class="category-metric">
-        <span>% críticas</span>
+        <span>% alertas</span>
         <strong>${formatPercent(row.porcentajeCriticas)}</strong>
       </div>
 
@@ -177,13 +196,38 @@ function renderCriticalReferences(data) {
     .filter(item => CRITICAL_STATES.includes(item.estado_referencia))
     .sort(compareCriticalReferences);
 
-  if (!criticalItems.length) {
-    container.innerHTML = '<p class="empty-state">No hay referencias críticas para esta tienda.</p>';
+  const priorityItems = criticalItems.filter(item =>
+    toNumber(item.inventario_unidades) > PRIORITY_INVENTORY_MIN
+  );
+
+  const secondaryItems = criticalItems.filter(item =>
+    toNumber(item.inventario_unidades) <= PRIORITY_INVENTORY_MIN
+  );
+
+  const orderedItems = [...priorityItems, ...secondaryItems];
+
+  if (!orderedItems.length) {
+    container.innerHTML = '<p class="empty-state">No hay productos para revisar en esta tienda.</p>';
     return;
   }
 
-  container.innerHTML = criticalItems.map(item => {
+  const itemsToShow = showAllProducts
+    ? orderedItems
+    : orderedItems.slice(0, INITIAL_PRODUCT_LIMIT);
+
+  const hiddenCount = orderedItems.length - itemsToShow.length;
+
+  const note = `
+    <div class="info-note">
+      Se priorizan productos con más de ${PRIORITY_INVENTORY_MIN} unidades en inventario.
+      Los productos con 15 unidades o menos quedan como seguimiento secundario.
+    </div>
+  `;
+
+  const cards = itemsToShow.map(item => {
     const colorClass = getColorClass(item.color_estado);
+    const inventory = toNumber(item.inventario_unidades);
+    const isPriority = inventory > PRIORITY_INVENTORY_MIN;
 
     return `
       <article class="reference-card ${colorClass}">
@@ -191,6 +235,10 @@ function renderCriticalReferences(data) {
           <div>
             <h3>${escapeHtml(item.referencia)} - ${escapeHtml(item.descripcion)}</h3>
             <span>${escapeHtml(item.mundo)} / ${escapeHtml(item.seccion)}</span>
+            <br>
+            <span class="priority-label ${isPriority ? 'priority-high' : 'priority-low'}">
+              ${isPriority ? 'Alerta principal +15 und.' : 'Seguimiento secundario'}
+            </span>
           </div>
           <div class="reference-status">${escapeHtml(item.estado_referencia)}</div>
         </div>
@@ -209,17 +257,51 @@ function renderCriticalReferences(data) {
             <strong>${formatDate(item.ultimo_despacho)}</strong>
           </div>
           <div>
+            <span>Días despacho</span>
+            <strong>${formatValue(item.dias_ultimo_despacho)}</strong>
+          </div>
+          <div>
             <span>Cant. despacho</span>
             <strong>${formatNumber(item.cantidad_ultimo_despacho)}</strong>
           </div>
         </div>
 
         <div class="action-box">
-          ${escapeHtml(item.accion_sugerida)}
+          <strong>Qué hacer:</strong> ${escapeHtml(item.accion_sugerida)}
         </div>
       </article>
     `;
   }).join('');
+
+  const loadMoreButton = hiddenCount > 0
+    ? `
+      <div class="load-more-box">
+        <button class="load-more-button" onclick="showMoreProducts()">
+          Ver más productos (${hiddenCount})
+        </button>
+      </div>
+    `
+    : showAllProducts && orderedItems.length > INITIAL_PRODUCT_LIMIT
+      ? `
+        <div class="load-more-box">
+          <button class="load-more-button" onclick="showLessProducts()">
+            Ver solo los primeros ${INITIAL_PRODUCT_LIMIT}
+          </button>
+        </div>
+      `
+      : '';
+
+  container.innerHTML = note + cards + loadMoreButton;
+}
+
+function showMoreProducts() {
+  showAllProducts = true;
+  renderDashboard(currentStoreName);
+}
+
+function showLessProducts() {
+  showAllProducts = false;
+  renderDashboard(currentStoreName);
 }
 
 function compareCriticalReferences(a, b) {
@@ -228,6 +310,13 @@ function compareCriticalReferences(a, b) {
     'Crítico': 2,
     'Lento': 3
   };
+
+  const aPriorityInventory = toNumber(a.inventario_unidades) > PRIORITY_INVENTORY_MIN ? 1 : 0;
+  const bPriorityInventory = toNumber(b.inventario_unidades) > PRIORITY_INVENTORY_MIN ? 1 : 0;
+
+  if (aPriorityInventory !== bPriorityInventory) {
+    return bPriorityInventory - aPriorityInventory;
+  }
 
   const priorityA = priority[a.estado_referencia] || 99;
   const priorityB = priority[b.estado_referencia] || 99;
@@ -335,6 +424,11 @@ function formatCoverage(value) {
   return `${number.toLocaleString('es-CO', {
     maximumFractionDigits: 1
   })} días`;
+}
+
+function formatValue(value) {
+  if (value === null || value === undefined || value === '') return '-';
+  return escapeHtml(value);
 }
 
 function escapeHtml(value) {
