@@ -157,10 +157,6 @@ function renderMundoSeccion(data) {
     return;
   }
 
-  if (!openSectionKey || !rows.some(row => row.key === openSectionKey)) {
-    openSectionKey = rows[0].key;
-  }
-
   const note = `
     <div class="info-note">
       <strong>Solo se muestran alertas relevantes.</strong>
