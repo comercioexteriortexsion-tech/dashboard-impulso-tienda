@@ -408,3 +408,152 @@ body {
   font-size: 13px;
   margin-bottom: 12px;
 }
+/* =========================================================
+   ZONAS DESPLEGABLES Y REFERENCIAS COMPACTAS
+   ========================================================= */
+
+.category-card {
+  cursor: pointer;
+  display: block;
+  padding: 0;
+  overflow: hidden;
+}
+
+.category-card:hover {
+  transform: translateY(-1px);
+  transition: 0.2s ease;
+}
+
+.category-card.open {
+  border-color: #1f6feb;
+}
+
+.category-card-header {
+  display: grid;
+  grid-template-columns: 1.6fr repeat(4, 1fr) auto auto;
+  gap: 10px;
+  align-items: center;
+  padding: 14px;
+}
+
+.category-card.open .category-card-header {
+  background: #fff7f7;
+}
+
+.expand-indicator {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--blue);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.section-references {
+  padding: 0 14px 14px;
+  border-top: 1px solid var(--border);
+}
+
+.section-references.hidden {
+  display: none;
+}
+
+.compact-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.compact-reference-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  background: var(--white);
+}
+
+.compact-reference-table th {
+  text-align: left;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.compact-reference-table td {
+  padding: 9px 8px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.compact-reference-table tr:last-child td {
+  border-bottom: none;
+}
+
+.ref-description {
+  min-width: 210px;
+}
+
+.ref-status {
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.dot-status {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  margin-right: 6px;
+}
+
+.dot-status.rojo {
+  background: var(--red);
+}
+
+.dot-status.amarillo {
+  background: var(--yellow);
+}
+
+.dot-status.azul {
+  background: var(--blue);
+}
+
+.dot-status.verde {
+  background: var(--green);
+}
+
+.action-cell {
+  color: var(--blue);
+  font-weight: 700;
+  min-width: 160px;
+}
+
+.info-note {
+  background: #eff6ff;
+  color: #1e3a8a;
+  border: 1px solid #bfdbfe;
+  padding: 10px;
+  border-radius: 12px;
+  font-size: 13px;
+  margin-top: 16px;
+}
+
+@media (max-width: 760px) {
+  .category-card-header {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .category-card-header .category-main {
+    grid-column: span 2;
+  }
+
+  .expand-indicator {
+    grid-column: span 2;
+    text-align: left;
+  }
+
+  .compact-reference-table {
+    font-size: 12px;
+    min-width: 780px;
+  }
+}
