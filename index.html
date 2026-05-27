@@ -2,17 +2,25 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Dashboard Impulso en Tienda</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 
 <body>
   <header class="app-header">
-    <div>
-      <h1>Impulso en Tienda</h1>
-      <p>Seguimiento comercial por tienda</p>
+    <div class="brand-block">
+      <div class="brand-icon" aria-hidden="true">
+        <span></span>
+        <span></span>
+        <span></span>
+      </div>
+      <div>
+        <h1>Impulso en Tienda</h1>
+        <p>Seguimiento comercial por tienda</p>
+      </div>
     </div>
+
     <div class="update-box">
       <span>Última actualización</span>
       <strong id="ultimaActualizacion">Cargando...</strong>
@@ -27,21 +35,31 @@
       </select>
     </section>
 
-    <section class="summary-grid">
-      <article class="summary-card">
-        <span>Cumplimiento meta</span>
+    <section class="summary-grid" aria-label="Resumen de tienda">
+      <article class="summary-card summary-blue">
+        <div class="summary-label">
+          <span class="summary-icon">◎</span>
+          <span>Cumplimiento meta</span>
+        </div>
         <strong id="cumplimientoMeta">-</strong>
         <small id="ventaMetaTexto">Venta / Meta</small>
+        <em>vs. meta mensual</em>
       </article>
 
-      <article class="summary-card">
-        <span>Inventario total</span>
+      <article class="summary-card summary-blue">
+        <div class="summary-label">
+          <span class="summary-icon">□</span>
+          <span>Inventario total</span>
+        </div>
         <strong id="inventarioTotal">-</strong>
         <small>Unidades en tienda</small>
       </article>
 
       <article class="summary-card alert-card">
-        <span>Referencias críticas</span>
+        <div class="summary-label">
+          <span class="summary-icon">△</span>
+          <span>Alertas principales</span>
+        </div>
         <strong id="referenciasCriticas">-</strong>
         <small>Sin venta, crítico y lento</small>
       </article>
@@ -49,8 +67,11 @@
 
     <section class="section-block">
       <div class="section-title">
-<h2>Zonas de tienda para priorizar</h2>
-<p>Toca una sección para ver los productos que debes revisar</p>
+        <div class="section-title-icon">⌖</div>
+        <div>
+          <h2>Zonas de tienda para priorizar</h2>
+          <p>Toca una sección para ver los productos que debes revisar.</p>
+        </div>
       </div>
 
       <div id="mundoSeccionContainer" class="category-list">
