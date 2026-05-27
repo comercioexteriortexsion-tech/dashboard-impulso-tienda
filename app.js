@@ -2,11 +2,10 @@ const API_URL = 'https://script.google.com/macros/s/AKfycbwCfspSz1mtp2mrNrqm9fez
 
 let dashboardData = [];
 let currentStoreName = '';
-let showAllProducts = false;
+let openSectionKey = null;
 
 const CRITICAL_STATES = ['Sin venta', 'Crítico', 'Lento'];
 const PRIORITY_INVENTORY_MIN = 15;
-const INITIAL_PRODUCT_LIMIT = 10;
 
 const storeSelect = document.getElementById('storeSelect');
 const loadingOverlay = document.getElementById('loadingOverlay');
@@ -32,8 +31,8 @@ async function initDashboard() {
     loadStoreSelector(dashboardData);
 
     storeSelect.addEventListener('change', () => {
-      showAllProducts = false;
       currentStoreName = storeSelect.value;
+      openSectionKey = null;
       renderDashboard(currentStoreName);
     });
 
@@ -71,13 +70,12 @@ function renderDashboard(storeName) {
 
   renderSummary(storeData);
   renderMundoSeccion(storeData);
-  renderCriticalReferences(storeData);
 }
 
 /**
- * Una referencia solo se considera crítica visible si:
- * 1. Su estado está en Sin venta, Crítico o Lento.
- * 2. Tiene más de 15 unidades en inventario.
+ * Solo se consideran alertas visibles las referencias que:
+ * 1. Están en estado Sin venta, Crítico o Lento.
+ * 2. Tienen más de 15 unidades en inventario.
  */
 function isVisibleCriticalReference(item) {
   return (
@@ -92,7 +90,7 @@ function renderSummary(data) {
   const metaMes = getFirstNumber(data, 'meta_venta_pesos');
   const inventarioTotal = sum(data, 'inventario_unidades');
 
-  const referenciasCriticasVisibles = data.filter(isVisibleCriticalReference).length;
+  const alertasPrincipales = data.filter(isVisibleCriticalReference).length;
 
   document.getElementById('cumplimientoMeta').textContent =
     cumplimiento === null ? '-' : formatPercent(cumplimiento);
@@ -104,10 +102,7 @@ function renderSummary(data) {
     formatNumber(inventarioTotal);
 
   document.getElementById('referenciasCriticas').textContent =
-    formatNumber(referenciasCriticasVisibles);
-
-  document.getElementById('contadorCriticas').textContent =
-    formatNumber(referenciasCriticasVisibles);
+    formatNumber(alertasPrincipales);
 }
 
 function renderMundoSeccion(data) {
@@ -125,12 +120,14 @@ function renderMundoSeccion(data) {
 
     if (!grouped[key]) {
       grouped[key] = {
+        key,
         mundo: item.mundo || 'SIN MUNDO',
         seccion: item.seccion || 'SIN SECCIÓN',
         inventario: 0,
         ventaUnidades: 0,
         totalReferencias: 0,
-        referenciasCriticas: 0
+        alertas: 0,
+        productosCriticos: []
       };
     }
 
@@ -139,163 +136,158 @@ function renderMundoSeccion(data) {
     grouped[key].totalReferencias += 1;
 
     if (isVisibleCriticalReference(item)) {
-      grouped[key].referenciasCriticas += 1;
+      grouped[key].alertas += 1;
+      grouped[key].productosCriticos.push(item);
     }
   });
 
   const rows = Object.values(grouped)
     .map(group => {
-      const porcentajeCriticas =
-        group.totalReferencias === 0 ? 0 : group.referenciasCriticas / group.totalReferencias;
+      const porcentajeAlertas =
+        group.totalReferencias === 0 ? 0 : group.alertas / group.totalReferencias;
 
       return {
         ...group,
-        porcentajeCriticas,
-        estadoGrupo: getEstadoGrupo(porcentajeCriticas)
+        porcentajeAlertas,
+        estadoGrupo: getEstadoGrupo(porcentajeAlertas),
+        productosCriticos: group.productosCriticos.sort(compareCriticalReferences)
       };
     })
-    .filter(row => row.referenciasCriticas > 0)
-    .sort((a, b) => b.referenciasCriticas - a.referenciasCriticas || b.porcentajeCriticas - a.porcentajeCriticas);
+    .filter(row => row.alertas > 0)
+    .sort(compareSections);
 
   if (!rows.length) {
     container.innerHTML = '<p class="empty-state">No hay zonas con alertas mayores a 15 unidades.</p>';
     return;
   }
 
-  container.innerHTML = rows.map(row => `
-    <article class="category-card">
-      <div class="category-main">
-        <strong>${escapeHtml(row.mundo)} / ${escapeHtml(row.seccion)}</strong>
-        <span>${formatNumber(row.totalReferencias)} referencias</span>
-      </div>
-
-      <div class="category-metric">
-        <span>Inventario</span>
-        <strong>${formatNumber(row.inventario)}</strong>
-      </div>
-
-      <div class="category-metric">
-        <span>Venta und.</span>
-        <strong>${formatNumber(row.ventaUnidades)}</strong>
-      </div>
-
-      <div class="category-metric">
-        <span>Alertas +15 und.</span>
-        <strong>${formatNumber(row.referenciasCriticas)}</strong>
-      </div>
-
-      <div class="category-metric">
-        <span>% alertas</span>
-        <strong>${formatPercent(row.porcentajeCriticas)}</strong>
-      </div>
-
-      <span class="status-pill ${getEstadoGrupoClass(row.estadoGrupo)}">
-        ${row.estadoGrupo}
-      </span>
-    </article>
-  `).join('');
-}
-
-function renderCriticalReferences(data) {
-  const container = document.getElementById('referenciasContainer');
-
-  const criticalItems = data
-    .filter(isVisibleCriticalReference)
-    .sort(compareCriticalReferences);
-
-  if (!criticalItems.length) {
-    container.innerHTML = '<p class="empty-state">No hay productos con alerta mayor a 15 unidades en esta tienda.</p>';
-    return;
-  }
-
-  const itemsToShow = showAllProducts
-    ? criticalItems
-    : criticalItems.slice(0, INITIAL_PRODUCT_LIMIT);
-
-  const hiddenCount = criticalItems.length - itemsToShow.length;
-
   const note = `
     <div class="info-note">
-      Se muestran únicamente productos críticos con más de ${PRIORITY_INVENTORY_MIN} unidades en inventario.
+      Solo se muestran secciones con referencias en estado Sin venta, Crítico o Lento y con más de ${PRIORITY_INVENTORY_MIN} unidades en inventario.
     </div>
   `;
 
-  const cards = itemsToShow.map(item => {
-    const colorClass = getColorClass(item.color_estado);
+  container.innerHTML = rows.map(row => {
+    const isOpen = openSectionKey === row.key;
 
     return `
-      <article class="reference-card ${colorClass}">
-        <div class="reference-header">
-          <div>
-            <h3>${escapeHtml(item.referencia)} - ${escapeHtml(item.descripcion)}</h3>
-            <span>${escapeHtml(item.mundo)} / ${escapeHtml(item.seccion)}</span>
-            <br>
-            <span class="priority-label priority-high">
-              Alerta principal +15 und.
-            </span>
+      <article class="category-card ${isOpen ? 'open' : ''}" onclick="toggleSection('${escapeAttribute(row.key)}')">
+        <div class="category-card-header">
+          <div class="category-main">
+            <strong>${escapeHtml(row.mundo)} / ${escapeHtml(row.seccion)}</strong>
+            <span>${formatNumber(row.totalReferencias)} referencias totales</span>
           </div>
-          <div class="reference-status">${escapeHtml(item.estado_referencia)}</div>
-        </div>
 
-        <div class="reference-grid">
-          <div>
+          <div class="category-metric">
             <span>Inventario</span>
-            <strong>${formatNumber(item.inventario_unidades)}</strong>
+            <strong>${formatNumber(row.inventario)}</strong>
           </div>
-          <div>
-            <span>Cobertura</span>
-            <strong>${formatCoverage(item.cobertura_dias)}</strong>
+
+          <div class="category-metric">
+            <span>Venta und.</span>
+            <strong>${formatNumber(row.ventaUnidades)}</strong>
           </div>
-          <div>
-            <span>Últ. despacho</span>
-            <strong>${formatDate(item.ultimo_despacho)}</strong>
+
+          <div class="category-metric">
+            <span>Alertas +15 und.</span>
+            <strong>${formatNumber(row.alertas)}</strong>
           </div>
-          <div>
-            <span>Días despacho</span>
-            <strong>${formatValue(item.dias_ultimo_despacho)}</strong>
+
+          <div class="category-metric">
+            <span>% alertas</span>
+            <strong>${formatPercent(row.porcentajeAlertas)}</strong>
           </div>
-          <div>
-            <span>Cant. despacho</span>
-            <strong>${formatNumber(item.cantidad_ultimo_despacho)}</strong>
+
+          <span class="status-pill ${getEstadoGrupoClass(row.estadoGrupo)}">
+            ${row.estadoGrupo}
+          </span>
+
+          <div class="expand-indicator">
+            ${isOpen ? 'Ocultar ▲' : 'Ver referencias ▼'}
           </div>
         </div>
 
-        <div class="action-box">
-          <strong>Qué hacer:</strong> ${escapeHtml(item.accion_sugerida)}
+        <div class="section-references ${isOpen ? '' : 'hidden'}" onclick="event.stopPropagation()">
+          ${renderSectionReferences(row.productosCriticos)}
         </div>
       </article>
     `;
-  }).join('');
-
-  const loadMoreButton = hiddenCount > 0
-    ? `
-      <div class="load-more-box">
-        <button class="load-more-button" onclick="showMoreProducts()">
-          Ver más productos (${hiddenCount})
-        </button>
-      </div>
-    `
-    : showAllProducts && criticalItems.length > INITIAL_PRODUCT_LIMIT
-      ? `
-        <div class="load-more-box">
-          <button class="load-more-button" onclick="showLessProducts()">
-            Ver solo los primeros ${INITIAL_PRODUCT_LIMIT}
-          </button>
-        </div>
-      `
-      : '';
-
-  container.innerHTML = note + cards + loadMoreButton;
+  }).join('') + note;
 }
 
-function showMoreProducts() {
-  showAllProducts = true;
+function renderSectionReferences(items) {
+  if (!items.length) {
+    return '<p class="empty-state">No hay productos críticos en esta sección.</p>';
+  }
+
+  return `
+    <div class="compact-table-wrap">
+      <table class="compact-reference-table">
+        <thead>
+          <tr>
+            <th>Referencia</th>
+            <th>Descripción</th>
+            <th>Estado</th>
+            <th>Inventario</th>
+            <th>Cobertura</th>
+            <th>Últ. despacho</th>
+            <th>Cant. despacho</th>
+            <th>Acción sugerida</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${items.map(item => {
+            const colorClass = getColorClass(item.color_estado);
+
+            return `
+              <tr>
+                <td>${escapeHtml(item.referencia)}</td>
+                <td class="ref-description">${escapeHtml(item.descripcion)}</td>
+                <td class="ref-status">
+                  <span class="dot-status ${colorClass}"></span>${escapeHtml(item.estado_referencia)}
+                </td>
+                <td>${formatNumber(item.inventario_unidades)}</td>
+                <td>${formatCoverage(item.cobertura_dias)}</td>
+                <td>${formatDate(item.ultimo_despacho)}</td>
+                <td>${formatNumber(item.cantidad_ultimo_despacho)}</td>
+                <td class="action-cell">${escapeHtml(item.accion_sugerida)}</td>
+              </tr>
+            `;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function toggleSection(sectionKey) {
+  openSectionKey = openSectionKey === sectionKey ? null : sectionKey;
   renderDashboard(currentStoreName);
 }
 
-function showLessProducts() {
-  showAllProducts = false;
-  renderDashboard(currentStoreName);
+function compareSections(a, b) {
+  const rank = {
+    'Prioritario': 1,
+    'Revisión': 2,
+    'Controlado': 3
+  };
+
+  const rankA = rank[a.estadoGrupo] || 99;
+  const rankB = rank[b.estadoGrupo] || 99;
+
+  if (rankA !== rankB) {
+    return rankA - rankB;
+  }
+
+  if (b.alertas !== a.alertas) {
+    return b.alertas - a.alertas;
+  }
+
+  if (b.porcentajeAlertas !== a.porcentajeAlertas) {
+    return b.porcentajeAlertas - a.porcentajeAlertas;
+  }
+
+  return b.inventario - a.inventario;
 }
 
 function compareCriticalReferences(a, b) {
@@ -322,9 +314,9 @@ function compareCriticalReferences(a, b) {
 }
 
 function getEstadoGrupo(porcentaje) {
-  if (porcentaje <= 0.15) return 'Controlado';
-  if (porcentaje <= 0.35) return 'Revisión';
-  return 'Prioritario';
+  if (porcentaje > 0.35) return 'Prioritario';
+  if (porcentaje > 0.15) return 'Revisión';
+  return 'Controlado';
 }
 
 function getEstadoGrupoClass(estado) {
@@ -413,11 +405,6 @@ function formatCoverage(value) {
   })} días`;
 }
 
-function formatValue(value) {
-  if (value === null || value === undefined || value === '') return '-';
-  return escapeHtml(value);
-}
-
 function escapeHtml(value) {
   return String(value ?? '')
     .replaceAll('&', '&amp;')
@@ -425,6 +412,15 @@ function escapeHtml(value) {
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#039;');
+}
+
+function escapeAttribute(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll("'", '&#039;')
+    .replaceAll('"', '&quot;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
 }
 
 function showLoading(show) {
