@@ -41,7 +41,6 @@ async function initDashboard() {
       currentStoreName = storeSelect.value;
       renderDashboard(currentStoreName);
     }
-
   } catch (error) {
     console.error(error);
     alert('No fue posible cargar la información del dashboard.');
@@ -72,11 +71,6 @@ function renderDashboard(storeName) {
   renderMundoSeccion(storeData);
 }
 
-/**
- * Solo se consideran alertas visibles las referencias que:
- * 1. Están en estado Sin venta, Crítico o Lento.
- * 2. Tienen más de 15 unidades en inventario.
- */
 function isVisibleCriticalReference(item) {
   return (
     CRITICAL_STATES.includes(item.estado_referencia) &&
@@ -89,7 +83,6 @@ function renderSummary(data) {
   const ventaMes = getFirstNumber(data, 'venta_pesos_mes');
   const metaMes = getFirstNumber(data, 'meta_venta_pesos');
   const inventarioTotal = sum(data, 'inventario_unidades');
-
   const alertasPrincipales = data.filter(isVisibleCriticalReference).length;
 
   document.getElementById('cumplimientoMeta').textContent =
@@ -109,6 +102,7 @@ function renderMundoSeccion(data) {
   const container = document.getElementById('mundoSeccionContainer');
 
   if (!data.length) {
+    openSectionKey = null;
     container.innerHTML = '<p class="empty-state">Selecciona una tienda para ver el desempeño.</p>';
     return;
   }
@@ -143,8 +137,9 @@ function renderMundoSeccion(data) {
 
   const rows = Object.values(grouped)
     .map(group => {
-      const porcentajeAlertas =
-        group.totalReferencias === 0 ? 0 : group.alertas / group.totalReferencias;
+      const porcentajeAlertas = group.totalReferencias === 0
+        ? 0
+        : group.alertas / group.totalReferencias;
 
       return {
         ...group,
@@ -157,62 +152,69 @@ function renderMundoSeccion(data) {
     .sort(compareSections);
 
   if (!rows.length) {
+    openSectionKey = null;
     container.innerHTML = '<p class="empty-state">No hay zonas con alertas mayores a 15 unidades.</p>';
     return;
   }
 
+  if (!openSectionKey || !rows.some(row => row.key === openSectionKey)) {
+    openSectionKey = rows[0].key;
+  }
+
   const note = `
     <div class="info-note">
-      Solo se muestran secciones con referencias en estado Sin venta, Crítico o Lento y con más de ${PRIORITY_INVENTORY_MIN} unidades en inventario.
+      <strong>Solo se muestran alertas relevantes.</strong>
+      <span>Referencias en estado Sin venta, Crítico o Lento con más de ${PRIORITY_INVENTORY_MIN} unidades en inventario. Las demás no se incluyen en los cálculos ni en el listado.</span>
     </div>
   `;
 
-  container.innerHTML = rows.map(row => {
-    const isOpen = openSectionKey === row.key;
+  container.innerHTML = rows.map((row, index) => renderSectionRow(row, index)).join('') + note;
+}
 
-    return `
-      <article class="category-card ${isOpen ? 'open' : ''}" onclick="toggleSection('${escapeAttribute(row.key)}')">
-        <div class="category-card-header">
-          <div class="category-main">
-            <strong>${escapeHtml(row.mundo)} / ${escapeHtml(row.seccion)}</strong>
-            <span>${formatNumber(row.totalReferencias)} referencias totales</span>
-          </div>
+function renderSectionRow(row, index) {
+  const isOpen = openSectionKey === row.key;
+  const statusClass = getEstadoGrupoClass(row.estadoGrupo);
+  const accentClass = getSectionAccentClass(row.estadoGrupo, index);
 
-          <div class="category-metric">
-            <span>Inventario</span>
-            <strong>${formatNumber(row.inventario)}</strong>
-          </div>
+  return `
+    <article class="category-card ${isOpen ? 'open' : ''} ${accentClass}">
+      <button class="category-card-header" type="button" onclick="toggleSection('${escapeAttribute(row.key)}')" aria-expanded="${isOpen}">
+        <div class="rank-badge">${index + 1}</div>
 
-          <div class="category-metric">
-            <span>Venta und.</span>
-            <strong>${formatNumber(row.ventaUnidades)}</strong>
-          </div>
-
-          <div class="category-metric">
-            <span>Alertas +15 und.</span>
-            <strong>${formatNumber(row.alertas)}</strong>
-          </div>
-
-          <div class="category-metric">
-            <span>% alertas</span>
-            <strong>${formatPercent(row.porcentajeAlertas)}</strong>
-          </div>
-
-          <span class="status-pill ${getEstadoGrupoClass(row.estadoGrupo)}">
-            ${row.estadoGrupo}
-          </span>
-
-          <div class="expand-indicator">
-            ${isOpen ? 'Ocultar ▲' : 'Ver referencias ▼'}
-          </div>
+        <div class="category-main">
+          <strong>${escapeHtml(row.mundo)} / ${escapeHtml(row.seccion)}</strong>
+          <span>${formatNumber(row.totalReferencias)} referencias totales</span>
         </div>
 
-        <div class="section-references ${isOpen ? '' : 'hidden'}" onclick="event.stopPropagation()">
-          ${renderSectionReferences(row.productosCriticos)}
+        <div class="category-metric">
+          <span>Inv.</span>
+          <strong>${formatNumber(row.inventario)}</strong>
         </div>
-      </article>
-    `;
-  }).join('') + note;
+
+        <div class="category-metric">
+          <span>Venta (und.)</span>
+          <strong>${formatNumber(row.ventaUnidades)}</strong>
+        </div>
+
+        <div class="category-metric alert-metric">
+          <span>Alertas +15</span>
+          <strong>${formatNumber(row.alertas)}</strong>
+        </div>
+
+        <div class="category-metric percent-metric">
+          <span>% alertas</span>
+          <strong>${formatPercent(row.porcentajeAlertas)}</strong>
+        </div>
+
+        <span class="status-pill ${statusClass}">${row.estadoGrupo}</span>
+        <span class="expand-indicator">${isOpen ? '⌃' : '⌄'}</span>
+      </button>
+
+      <div class="section-references ${isOpen ? '' : 'hidden'}">
+        ${renderSectionReferences(row.productosCriticos)}
+      </div>
+    </article>
+  `;
 }
 
 function renderSectionReferences(items) {
@@ -226,30 +228,28 @@ function renderSectionReferences(items) {
         <thead>
           <tr>
             <th>Referencia</th>
-            <th>Descripción</th>
             <th>Estado</th>
             <th>Inventario</th>
             <th>Cobertura</th>
             <th>Últ. despacho</th>
-            <th>Cant. despacho</th>
             <th>Acción sugerida</th>
           </tr>
         </thead>
         <tbody>
           ${items.map(item => {
             const colorClass = getColorClass(item.color_estado);
-
             return `
               <tr>
-                <td>${escapeHtml(item.referencia)}</td>
-                <td class="ref-description">${escapeHtml(item.descripcion)}</td>
+                <td class="ref-main">
+                  <strong>${escapeHtml(item.referencia)}</strong>
+                  <span>${escapeHtml(item.descripcion)}</span>
+                </td>
                 <td class="ref-status">
                   <span class="dot-status ${colorClass}"></span>${escapeHtml(item.estado_referencia)}
                 </td>
                 <td>${formatNumber(item.inventario_unidades)}</td>
                 <td>${formatCoverage(item.cobertura_dias)}</td>
                 <td>${formatDate(item.ultimo_despacho)}</td>
-                <td>${formatNumber(item.cantidad_ultimo_despacho)}</td>
                 <td class="action-cell">${escapeHtml(item.accion_sugerida)}</td>
               </tr>
             `;
@@ -275,17 +275,9 @@ function compareSections(a, b) {
   const rankA = rank[a.estadoGrupo] || 99;
   const rankB = rank[b.estadoGrupo] || 99;
 
-  if (rankA !== rankB) {
-    return rankA - rankB;
-  }
-
-  if (b.alertas !== a.alertas) {
-    return b.alertas - a.alertas;
-  }
-
-  if (b.porcentajeAlertas !== a.porcentajeAlertas) {
-    return b.porcentajeAlertas - a.porcentajeAlertas;
-  }
+  if (rankA !== rankB) return rankA - rankB;
+  if (b.alertas !== a.alertas) return b.alertas - a.alertas;
+  if (b.porcentajeAlertas !== a.porcentajeAlertas) return b.porcentajeAlertas - a.porcentajeAlertas;
 
   return b.inventario - a.inventario;
 }
@@ -300,15 +292,10 @@ function compareCriticalReferences(a, b) {
   const priorityA = priority[a.estado_referencia] || 99;
   const priorityB = priority[b.estado_referencia] || 99;
 
-  if (priorityA !== priorityB) {
-    return priorityA - priorityB;
-  }
+  if (priorityA !== priorityB) return priorityA - priorityB;
 
   const invDiff = toNumber(b.inventario_unidades) - toNumber(a.inventario_unidades);
-
-  if (invDiff !== 0) {
-    return invDiff;
-  }
+  if (invDiff !== 0) return invDiff;
 
   return toNumber(b.cobertura_dias) - toNumber(a.cobertura_dias);
 }
@@ -323,6 +310,13 @@ function getEstadoGrupoClass(estado) {
   if (estado === 'Controlado') return 'status-controlado';
   if (estado === 'Revisión') return 'status-revision';
   return 'status-prioritario';
+}
+
+function getSectionAccentClass(estado, index) {
+  if (estado === 'Prioritario') return 'accent-prioritario';
+  if (estado === 'Revisión') return 'accent-revision';
+  if (index < 3) return 'accent-blue-soft';
+  return 'accent-controlado';
 }
 
 function getColorClass(color) {
@@ -376,8 +370,8 @@ function formatCurrency(value) {
 function formatPercent(value) {
   return toNumber(value).toLocaleString('es-CO', {
     style: 'percent',
-    minimumFractionDigits: 1,
-    maximumFractionDigits: 1
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0
   });
 }
 
@@ -401,7 +395,7 @@ function formatCoverage(value) {
   if (!number) return '-';
 
   return `${number.toLocaleString('es-CO', {
-    maximumFractionDigits: 1
+    maximumFractionDigits: 0
   })} días`;
 }
 
