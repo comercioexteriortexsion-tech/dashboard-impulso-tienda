@@ -7,7 +7,7 @@
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
   <title>Dashboard Impulso en Tienda</title>
-  <link rel="stylesheet" href="styles.css?v=20260528-fix2" />
+  <link rel="stylesheet" href="styles.css?v=20260528-safe3" />
 </head>
 
 <body>
@@ -37,8 +37,16 @@
     </div>
   </header>
 
+  <section class="store-bar hidden" id="storeBar" aria-live="polite">
+    <div class="store-bar__info">
+      <span class="store-bar__label">Tienda activa</span>
+      <strong id="storeBarName">Sin tienda seleccionada</strong>
+    </div>
+    <button class="store-bar__change" id="changeStoreButton" type="button">Cambiar</button>
+  </section>
+
   <main class="app-main">
-    <section class="selector-card">
+    <section class="selector-card" id="selectorCard">
       <label for="storeSelect">Selecciona tu tienda</label>
       <div class="select-wrapper">
         <select id="storeSelect" aria-label="Seleccionar tienda">
@@ -102,6 +110,8 @@
     <p>Cargando información...</p>
   </div>
 
-  <script src="app.js?v=20260528-fix2"></script>
+  <div id="appToast" class="app-toast" role="status" aria-live="polite"></div>
+
+  <script src="app.js?v=20260528-safe3"></script>
 </body>
 </html>
