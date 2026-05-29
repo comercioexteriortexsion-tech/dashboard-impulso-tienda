@@ -7,7 +7,7 @@
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
   <title>Dashboard Impulso en Tienda</title>
-  <link rel="stylesheet" href="styles.css?v=20260528-safe5" />
+  <link rel="stylesheet" href="styles.css?v=20260528-safe6" />
 </head>
 
 <body>
@@ -18,9 +18,10 @@
         <line x1="3" y1="6" x2="21" y2="6" />
         <path d="M16 10a4 4 0 0 1-8 0" />
       </svg>
-      <div>
+      <div class="app-header__store-group">
         <span class="app-header__title">Impulso en Tienda</span>
         <span class="app-header__store" id="headerStoreName">Sin tienda seleccionada</span>
+        <button class="header-change-store" id="changeStoreButton" type="button">Cambiar</button>
       </div>
     </div>
 
@@ -36,14 +37,6 @@
       </button>
     </div>
   </header>
-
-  <section class="store-bar hidden" id="storeBar" aria-live="polite">
-    <div class="store-bar__info">
-      <span class="store-bar__label">Tienda activa</span>
-      <strong id="storeBarName">Sin tienda seleccionada</strong>
-    </div>
-    <button class="store-bar__change" id="changeStoreButton" type="button">Cambiar</button>
-  </section>
 
   <main class="app-main">
     <section class="selector-card" id="selectorCard">
@@ -112,6 +105,6 @@
 
   <div id="appToast" class="app-toast" role="status" aria-live="polite"></div>
 
-  <script src="app.js?v=20260528-safe5"></script>
+  <script src="app.js?v=20260528-safe6"></script>
 </body>
 </html>
