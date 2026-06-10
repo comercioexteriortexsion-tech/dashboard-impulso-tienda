@@ -1,8 +1,11 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwCfspSz1mtp2mrNrqm9fezzLArIMv7Wzxbg3vqYMxZ4xvUbrLtc0F6JUnyAB5eFucO/exec';
 
 let dashboardData = [];
+let storeDashboards = {};
+let storesList = [];
 let currentStoreName = '';
 let openSectionKey = null;
+let usesOptimizedApi = true;
 
 const CRITICAL_STATES = ['Sin venta', 'Crítico', 'Lento'];
 const PRIORITY_INVENTORY_MIN = 15;
@@ -27,30 +30,15 @@ async function initDashboard() {
   try {
     showLoading(true);
 
-    const response = await fetch(API_URL, { cache: 'no-store' });
-    const json = await response.json();
+    await loadInitialData();
 
-    if (!json.ok) {
-      throw new Error(json.error || 'Error al cargar datos');
-    }
-
-    dashboardData = json.data || [];
-
-    setText('ultimaActualizacion', formatDate(json.ultima_actualizacion) || 'Sin dato');
-    loadStoreSelector(dashboardData);
-
-    storeSelect.addEventListener('change', () => {
-      currentStoreName = storeSelect.value;
-      openSectionKey = null;
-      updateActiveStoreUI(currentStoreName, false);
-      renderDashboard(currentStoreName);
+    storeSelect.addEventListener('change', async () => {
+      await handleStoreChange(storeSelect.value);
     });
 
     if (storeSelect.options.length > 1) {
       storeSelect.selectedIndex = 1;
-      currentStoreName = storeSelect.value;
-      updateActiveStoreUI(currentStoreName, false);
-      renderDashboard(currentStoreName);
+      await handleStoreChange(storeSelect.value);
     }
   } catch (error) {
     console.error('Error cargando dashboard:', error);
@@ -61,6 +49,134 @@ async function initDashboard() {
   }
 }
 
+async function loadInitialData() {
+  try {
+    const json = await fetchJson(buildApiUrl({ modo: 'tiendas' }));
+
+    if (!json.ok || !Array.isArray(json.tiendas)) {
+      throw new Error(json.error || 'La API optimizada no devolvió tiendas.');
+    }
+
+    usesOptimizedApi = true;
+    dashboardData = [];
+    storeDashboards = {};
+    storesList = json.tiendas || [];
+
+    setText('ultimaActualizacion', formatDate(json.ultima_actualizacion) || 'Sin dato');
+    loadStoreSelector(storesList);
+  } catch (error) {
+    console.warn('No fue posible usar la API optimizada. Se usa respaldo compatible.', error);
+    await loadRawDataFallback();
+  }
+}
+
+async function loadRawDataFallback() {
+  const json = await fetchJson(API_URL);
+
+  if (!json.ok) {
+    throw new Error(json.error || 'Error al cargar datos');
+  }
+
+  usesOptimizedApi = false;
+  storeDashboards = {};
+  dashboardData = json.data || [];
+  storesList = [];
+
+  setText('ultimaActualizacion', formatDate(json.ultima_actualizacion) || 'Sin dato');
+  loadStoreSelector(dashboardData);
+}
+
+async function handleStoreChange(storeName) {
+  currentStoreName = storeName;
+  openSectionKey = null;
+  updateActiveStoreUI(currentStoreName, false);
+
+  if (!currentStoreName) {
+    renderDashboard('');
+    return;
+  }
+
+  try {
+    if (usesOptimizedApi) {
+      showLoading(true);
+      await loadStoreDashboard(currentStoreName);
+    }
+
+    renderDashboard(currentStoreName);
+  } catch (error) {
+    console.error('Error cargando tienda:', error);
+    showToast('No se pudo cargar esta tienda. Intenta actualizar.');
+    renderErrorState();
+  } finally {
+    showLoading(false);
+  }
+}
+
+async function loadStoreDashboard(storeName, forceRefresh = false) {
+  if (!forceRefresh && storeDashboards[storeName]) {
+    return storeDashboards[storeName];
+  }
+
+  const json = await fetchJson(buildApiUrl({ modo: 'tienda', nombre: storeName }));
+
+  if (!json.ok) {
+    throw new Error(json.error || 'Error al cargar tienda optimizada');
+  }
+
+  const dashboard = normalizeOptimizedDashboard(json);
+  storeDashboards[storeName] = dashboard;
+
+  if (json.ultima_actualizacion) {
+    setText('ultimaActualizacion', formatDate(json.ultima_actualizacion) || 'Sin dato');
+  }
+
+  return dashboard;
+}
+
+function normalizeOptimizedDashboard(json) {
+  const resumen = json.resumen || {};
+  const zonas = Array.isArray(json.zonas) ? json.zonas : [];
+
+  return {
+    resumen: {
+      cumplimiento_meta: toNumber(resumen.cumplimiento_meta),
+      venta_pesos_mes: toNumber(resumen.venta_pesos_mes),
+      meta_venta_pesos: toNumber(resumen.meta_venta_pesos),
+      inventario_total: toNumber(resumen.inventario_total),
+      alertas_total: toNumber(resumen.alertas_total),
+      sin_venta: toNumber(resumen.sin_venta),
+      criticos: toNumber(resumen.criticos),
+      lentos: toNumber(resumen.lentos)
+    },
+    zonas: zonas.map(zona => {
+      const key = zona.key || zona.key_zona || `${zona.mundo || 'SIN MUNDO'}|${zona.seccion || 'SIN SECCIÓN'}`;
+      return {
+        key,
+        mundo: zona.mundo || 'SIN MUNDO',
+        seccion: zona.seccion || 'SIN SECCIÓN',
+        inventario: toNumber(zona.inventario),
+        ventaUnidades: toNumber(zona.venta_unidades),
+        totalReferencias: toNumber(zona.total_referencias),
+        alertas: toNumber(zona.alertas),
+        porcentajeAlertas: toNumber(zona.porcentaje_alertas),
+        estadoGrupo: zona.estado_grupo || 'Controlado',
+        productosCriticos: Array.isArray(zona.referencias) ? zona.referencias : []
+      };
+    })
+  };
+}
+
+function buildApiUrl(params) {
+  const query = new URLSearchParams(params).toString();
+  const separator = API_URL.includes('?') ? '&' : '?';
+  return `${API_URL}${separator}${query}`;
+}
+
+async function fetchJson(url) {
+  const response = await fetch(url, { cache: 'no-store' });
+  return response.json();
+}
+
 function bindRefreshButton() {
   if (!refreshButton) return;
 
@@ -68,21 +184,26 @@ function bindRefreshButton() {
     refreshButton.classList.add('loading');
 
     try {
-      if (!dashboardData.length) {
-        showToast('Actualizando información...');
-        showLoading(true);
-        const response = await fetch(API_URL, { cache: 'no-store' });
-        const json = await response.json();
-        if (!json.ok) throw new Error(json.error || 'Error al actualizar datos');
-        dashboardData = json.data || [];
-        setText('ultimaActualizacion', formatDate(json.ultima_actualizacion) || 'Sin dato');
-        loadStoreSelector(dashboardData);
+      showToast('Actualizando información...');
+      showLoading(true);
+
+      if (usesOptimizedApi) {
+        await loadInitialData();
+
+        if (currentStoreName) {
+          await loadStoreDashboard(currentStoreName, true);
+          updateActiveStoreUI(currentStoreName, false);
+          renderDashboard(currentStoreName);
+        }
+      } else {
+        await loadRawDataFallback();
+
+        if (currentStoreName) {
+          renderDashboard(currentStoreName);
+        }
       }
 
-      if (currentStoreName) {
-        renderDashboard(currentStoreName);
-        showToast('Información actualizada.');
-      }
+      showToast('Información actualizada.');
     } catch (error) {
       console.error('Error actualizando:', error);
       showToast('No se pudo actualizar. Revisa la conexión.');
@@ -120,9 +241,9 @@ function updateActiveStoreUI(storeName, showSelector = false) {
 }
 
 function loadStoreSelector(data) {
-  const stores = [...new Set(data.map(item => item.nombre_almacen))]
-    .filter(Boolean)
-    .sort();
+  const stores = Array.isArray(data) && typeof data[0] === 'string'
+    ? data.filter(Boolean).sort()
+    : [...new Set((data || []).map(item => item.nombre_almacen))].filter(Boolean).sort();
 
   storeSelect.innerHTML = '<option value="">Selecciona una tienda</option>';
   stores.forEach(store => {
@@ -134,9 +255,71 @@ function loadStoreSelector(data) {
 }
 
 function renderDashboard(storeName) {
+  if (usesOptimizedApi) {
+    const dashboard = storeDashboards[storeName];
+
+    if (!storeName || !dashboard) {
+      renderSummaryCalculated({});
+      renderMundoSeccionCalculated([]);
+      return;
+    }
+
+    renderSummaryCalculated(dashboard.resumen);
+    renderMundoSeccionCalculated(dashboard.zonas);
+    return;
+  }
+
   const storeData = dashboardData.filter(item => item.nombre_almacen === storeName);
   renderSummary(storeData);
   renderMundoSeccion(storeData);
+}
+
+function renderSummaryCalculated(resumen) {
+  const cumplimiento = toNumberOrNull(resumen.cumplimiento_meta);
+  const ventaMes = toNumber(resumen.venta_pesos_mes);
+  const metaMes = toNumber(resumen.meta_venta_pesos);
+  const inventarioTotal = toNumber(resumen.inventario_total);
+  const alertasPrincipales = toNumber(resumen.alertas_total);
+  const sinVenta = toNumber(resumen.sin_venta);
+  const criticos = toNumber(resumen.criticos);
+  const lentos = toNumber(resumen.lentos);
+
+  pintarSummary({
+    cumplimiento,
+    ventaMes,
+    metaMes,
+    inventarioTotal,
+    alertasPrincipales,
+    sinVenta,
+    criticos,
+    lentos
+  });
+}
+
+function renderMundoSeccionCalculated(rows) {
+  const container = document.getElementById('mundoSeccionContainer');
+  if (!container) return;
+
+  if (!currentStoreName) {
+    openSectionKey = null;
+    container.innerHTML = renderEmptyState('Selecciona una tienda', 'Elige una tienda para ver zonas, alertas y referencias a revisar.');
+    return;
+  }
+
+  if (!rows.length) {
+    openSectionKey = null;
+    container.innerHTML = renderEmptyState('Sin zonas críticas', 'Esta tienda no tiene alertas mayores a 15 unidades para revisar en este momento.');
+    return;
+  }
+
+  const note = `
+    <div class="info-note">
+      <strong>Solo se muestran alertas relevantes.</strong>
+      <span>Referencias en estado Sin venta, Crítico o Lento con más de ${PRIORITY_INVENTORY_MIN} unidades en inventario.</span>
+    </div>
+  `;
+
+  container.innerHTML = rows.map((row, index) => renderSectionRow(row, index)).join('') + note;
 }
 
 function isVisibleCriticalReference(item) {
@@ -156,6 +339,19 @@ function renderSummary(data) {
   const criticos = alertasVisibles.filter(item => item.estado_referencia === 'Crítico').length;
   const lentos = alertasVisibles.filter(item => item.estado_referencia === 'Lento').length;
 
+  pintarSummary({
+    cumplimiento,
+    ventaMes,
+    metaMes,
+    inventarioTotal,
+    alertasPrincipales,
+    sinVenta,
+    criticos,
+    lentos
+  });
+}
+
+function pintarSummary({ cumplimiento, ventaMes, metaMes, inventarioTotal, alertasPrincipales, sinVenta, criticos, lentos }) {
   const cumplimientoValue = cumplimiento === null ? 0 : cumplimiento;
   const cumplimientoPct = Math.max(0, Math.min(cumplimientoValue * 100, 100));
 
@@ -243,20 +439,7 @@ function renderMundoSeccion(data) {
     .filter(row => row.alertas > 0)
     .sort(compareSections);
 
-  if (!rows.length) {
-    openSectionKey = null;
-    container.innerHTML = renderEmptyState('Sin zonas críticas', 'Esta tienda no tiene alertas mayores a 15 unidades para revisar en este momento.');
-    return;
-  }
-
-  const note = `
-    <div class="info-note">
-      <strong>Solo se muestran alertas relevantes.</strong>
-      <span>Referencias en estado Sin venta, Crítico o Lento con más de ${PRIORITY_INVENTORY_MIN} unidades en inventario.</span>
-    </div>
-  `;
-
-  container.innerHTML = rows.map((row, index) => renderSectionRow(row, index)).join('') + note;
+  renderMundoSeccionCalculated(rows);
 }
 
 function renderSectionRow(row, index) {
@@ -425,6 +608,7 @@ function toNumber(value) {
 }
 
 function toNumberOrNull(value) {
+  if (value === null || value === undefined || value === '') return null;
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
 }
