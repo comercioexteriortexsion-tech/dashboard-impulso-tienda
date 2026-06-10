@@ -3,6 +3,7 @@ const API_URL = 'https://script.google.com/macros/s/AKfycbwCfspSz1mtp2mrNrqm9fez
 let dashboardData = [];
 let storeDashboards = {};
 let storesList = [];
+let generalSummary = null;
 let currentStoreName = '';
 let openSectionKey = null;
 let usesOptimizedApi = true;
@@ -36,10 +37,7 @@ async function initDashboard() {
       await handleStoreChange(storeSelect.value);
     });
 
-    if (storeSelect.options.length > 1) {
-      storeSelect.selectedIndex = 1;
-      await handleStoreChange(storeSelect.value);
-    }
+    renderGeneralDashboard();
   } catch (error) {
     console.error('Error cargando dashboard:', error);
     renderErrorState();
@@ -51,18 +49,26 @@ async function initDashboard() {
 
 async function loadInitialData() {
   try {
-    const json = await fetchJson(buildApiUrl({ modo: 'tiendas' }));
+    const [generalJson, tiendasJson] = await Promise.all([
+      fetchJson(buildApiUrl({ modo: 'general' })),
+      fetchJson(buildApiUrl({ modo: 'tiendas' }))
+    ]);
 
-    if (!json.ok || !Array.isArray(json.tiendas)) {
-      throw new Error(json.error || 'La API optimizada no devolvió tiendas.');
+    if (!generalJson.ok || !generalJson.resumen_general) {
+      throw new Error(generalJson.error || 'La API general no devolvió resumen.');
+    }
+
+    if (!tiendasJson.ok || !Array.isArray(tiendasJson.tiendas)) {
+      throw new Error(tiendasJson.error || 'La API optimizada no devolvió tiendas.');
     }
 
     usesOptimizedApi = true;
     dashboardData = [];
     storeDashboards = {};
-    storesList = json.tiendas || [];
+    storesList = tiendasJson.tiendas || [];
+    generalSummary = normalizeSummary(generalJson.resumen_general);
 
-    setText('ultimaActualizacion', formatDate(json.ultima_actualizacion) || 'Sin dato');
+    setText('ultimaActualizacion', formatDate(generalJson.ultima_actualizacion || tiendasJson.ultima_actualizacion) || 'Sin dato');
     loadStoreSelector(storesList);
   } catch (error) {
     console.warn('No fue posible usar la API optimizada. Se usa respaldo compatible.', error);
@@ -81,20 +87,66 @@ async function loadRawDataFallback() {
   storeDashboards = {};
   dashboardData = json.data || [];
   storesList = [];
+  generalSummary = buildGeneralSummaryFromRawData(dashboardData);
 
   setText('ultimaActualizacion', formatDate(json.ultima_actualizacion) || 'Sin dato');
   loadStoreSelector(dashboardData);
 }
 
+function buildGeneralSummaryFromRawData(data) {
+  const stores = [...new Set((data || []).map(item => item.nombre_almacen))].filter(Boolean);
+  const byStore = {};
+
+  data.forEach(item => {
+    const store = item.nombre_almacen;
+    if (!store) return;
+    if (!byStore[store]) byStore[store] = [];
+    byStore[store].push(item);
+  });
+
+  let ventaTotal = 0;
+  let metaTotal = 0;
+  let inventarioTotal = 0;
+  let alertasTotal = 0;
+  let sinVenta = 0;
+  let criticos = 0;
+  let lentos = 0;
+
+  Object.values(byStore).forEach(storeData => {
+    ventaTotal += getFirstNumber(storeData, 'venta_pesos_mes') || 0;
+    metaTotal += getFirstNumber(storeData, 'meta_venta_pesos') || 0;
+    inventarioTotal += sum(storeData, 'inventario_unidades');
+
+    const alertasVisibles = storeData.filter(isVisibleCriticalReference);
+    alertasTotal += alertasVisibles.length;
+    sinVenta += alertasVisibles.filter(item => item.estado_referencia === 'Sin venta').length;
+    criticos += alertasVisibles.filter(item => item.estado_referencia === 'Crítico').length;
+    lentos += alertasVisibles.filter(item => item.estado_referencia === 'Lento').length;
+  });
+
+  return {
+    total_tiendas: stores.length,
+    cumplimiento_meta: metaTotal > 0 ? ventaTotal / metaTotal : 0,
+    venta_pesos_mes: ventaTotal,
+    meta_venta_pesos: metaTotal,
+    inventario_total: inventarioTotal,
+    alertas_total: alertasTotal,
+    sin_venta: sinVenta,
+    criticos,
+    lentos
+  };
+}
+
 async function handleStoreChange(storeName) {
   currentStoreName = storeName;
   openSectionKey = null;
-  updateActiveStoreUI(currentStoreName, false);
 
   if (!currentStoreName) {
-    renderDashboard('');
+    renderGeneralDashboard();
     return;
   }
+
+  updateActiveStoreUI(currentStoreName, false);
 
   try {
     if (usesOptimizedApi) {
@@ -133,21 +185,26 @@ async function loadStoreDashboard(storeName, forceRefresh = false) {
   return dashboard;
 }
 
+function normalizeSummary(resumen) {
+  return {
+    total_tiendas: toNumber(resumen.total_tiendas),
+    cumplimiento_meta: toNumber(resumen.cumplimiento_meta),
+    venta_pesos_mes: toNumber(resumen.venta_pesos_mes),
+    meta_venta_pesos: toNumber(resumen.meta_venta_pesos),
+    inventario_total: toNumber(resumen.inventario_total),
+    alertas_total: toNumber(resumen.alertas_total),
+    sin_venta: toNumber(resumen.sin_venta),
+    criticos: toNumber(resumen.criticos),
+    lentos: toNumber(resumen.lentos)
+  };
+}
+
 function normalizeOptimizedDashboard(json) {
   const resumen = json.resumen || {};
   const zonas = Array.isArray(json.zonas) ? json.zonas : [];
 
   return {
-    resumen: {
-      cumplimiento_meta: toNumber(resumen.cumplimiento_meta),
-      venta_pesos_mes: toNumber(resumen.venta_pesos_mes),
-      meta_venta_pesos: toNumber(resumen.meta_venta_pesos),
-      inventario_total: toNumber(resumen.inventario_total),
-      alertas_total: toNumber(resumen.alertas_total),
-      sin_venta: toNumber(resumen.sin_venta),
-      criticos: toNumber(resumen.criticos),
-      lentos: toNumber(resumen.lentos)
-    },
+    resumen: normalizeSummary(resumen),
     zonas: zonas.map(zona => {
       const key = zona.key || zona.key_zona || `${zona.mundo || 'SIN MUNDO'}|${zona.seccion || 'SIN SECCIÓN'}`;
       return {
@@ -194,12 +251,16 @@ function bindRefreshButton() {
           await loadStoreDashboard(currentStoreName, true);
           updateActiveStoreUI(currentStoreName, false);
           renderDashboard(currentStoreName);
+        } else {
+          renderGeneralDashboard();
         }
       } else {
         await loadRawDataFallback();
 
         if (currentStoreName) {
           renderDashboard(currentStoreName);
+        } else {
+          renderGeneralDashboard();
         }
       }
 
@@ -217,26 +278,29 @@ function bindRefreshButton() {
 function bindChangeStoreButton() {
   if (!changeStoreButton || !selectorCard) return;
 
-  changeStoreButton.addEventListener('click', () => {
-    selectorCard.classList.remove('selector-card--hidden');
-    selectorCard.classList.add('selector-card--visible');
-    selectorCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    setTimeout(() => storeSelect.focus({ preventScroll: true }), 250);
-  });
+  changeStoreButton.addEventListener('click', showStoreSelector);
+}
+
+function showStoreSelector() {
+  if (!selectorCard) return;
+  selectorCard.classList.remove('selector-card--hidden');
+  selectorCard.classList.add('selector-card--visible');
+  selectorCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  setTimeout(() => storeSelect.focus({ preventScroll: true }), 250);
 }
 
 function updateActiveStoreUI(storeName, showSelector = false) {
-  const label = storeName || 'Sin tienda seleccionada';
+  const label = storeName || 'Vista general / Todas las tiendas';
   if (headerStoreName) headerStoreName.textContent = label;
-  if (storeBarName) storeBarName.textContent = label;
+  if (storeBarName) storeBarName.textContent = storeName || 'Todas las tiendas';
 
   if (storeBar) {
     storeBar.classList.toggle('hidden', !storeName);
   }
 
   if (selectorCard) {
-    selectorCard.classList.toggle('selector-card--hidden', Boolean(storeName) && !showSelector);
-    selectorCard.classList.toggle('selector-card--visible', !storeName || showSelector);
+    selectorCard.classList.toggle('selector-card--hidden', !showSelector);
+    selectorCard.classList.toggle('selector-card--visible', showSelector);
   }
 }
 
@@ -254,13 +318,39 @@ function loadStoreSelector(data) {
   });
 }
 
+function renderGeneralDashboard() {
+  currentStoreName = '';
+  openSectionKey = null;
+  if (storeSelect) storeSelect.value = '';
+
+  updateActiveStoreUI('', false);
+  renderSummaryCalculated(generalSummary || {});
+
+  const container = document.getElementById('mundoSeccionContainer');
+  if (!container) return;
+
+  const totalTiendas = toNumber(generalSummary && generalSummary.total_tiendas);
+
+  container.innerHTML = `
+    <div class="empty-state general-action-card" role="status">
+      <p class="empty-state__title">Vista general de tiendas</p>
+      <p class="empty-state__desc">
+        Estás viendo el cumplimiento consolidado${totalTiendas ? ` de ${formatNumber(totalTiendas)} tiendas` : ''}.
+        Selecciona una tienda para revisar zonas, secciones y referencias críticas.
+      </p>
+      <button class="store-bar__change general-select-button" type="button" onclick="showStoreSelector()">
+        Seleccionar una tienda
+      </button>
+    </div>
+  `;
+}
+
 function renderDashboard(storeName) {
   if (usesOptimizedApi) {
     const dashboard = storeDashboards[storeName];
 
     if (!storeName || !dashboard) {
-      renderSummaryCalculated({});
-      renderMundoSeccionCalculated([]);
+      renderGeneralDashboard();
       return;
     }
 
@@ -301,8 +391,7 @@ function renderMundoSeccionCalculated(rows) {
   if (!container) return;
 
   if (!currentStoreName) {
-    openSectionKey = null;
-    container.innerHTML = renderEmptyState('Selecciona una tienda', 'Elige una tienda para ver zonas, alertas y referencias a revisar.');
+    renderGeneralDashboard();
     return;
   }
 
@@ -395,8 +484,7 @@ function renderMundoSeccion(data) {
   if (!container) return;
 
   if (!data.length) {
-    openSectionKey = null;
-    container.innerHTML = renderEmptyState('Selecciona una tienda', 'Elige una tienda para ver zonas, alertas y referencias a revisar.');
+    renderGeneralDashboard();
     return;
   }
 
@@ -578,7 +666,7 @@ function injectControlledStyles() {
   if (document.getElementById('controlledStyles')) return;
   const style = document.createElement('style');
   style.id = 'controlledStyles';
-  style.textContent = `.app-main{width:min(100%,980px);margin:0 auto;padding:16px;padding-bottom:calc(24px + env(safe-area-inset-bottom,0px))}.app-header__left,.app-header__right{display:flex;align-items:center}.app-header__left{gap:12px}.app-header__right{gap:8px}.app-header__icon{color:#1a56db}.app-header__title{display:block;font-size:13px;font-weight:700}.app-header__store{display:block;font-size:11px;opacity:.75}.app-header__refresh{width:44px;height:44px;border:0;border-radius:10px;background:transparent;color:inherit}.app-header__refresh.loading svg{animation:spin .8s linear infinite}.store-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:12px auto 0;width:calc(100% - 24px);max-width:980px;padding:10px 14px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:14px;color:#111827}.store-bar.hidden{display:none!important}.store-bar__info{min-width:0}.store-bar__label{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:#64748b;font-weight:800}.store-bar__info strong{display:block;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.store-bar__change{height:36px;padding:0 12px;border:0;border-radius:999px;background:#1a56db;color:#fff;font-size:12px;font-weight:700}.selector-card--hidden{display:none!important}.selector-card--visible{display:block!important;animation:selectorDrop .16s ease-out}@keyframes selectorDrop{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}.summary-card__header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}.summary-card__label{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:#6b7280}.summary-card__icon{width:28px;height:28px;display:grid;place-items:center;border-radius:6px;background:rgba(255,255,255,.7);color:#1a56db}.summary-card__icon--alert{color:#e02424}.summary-card--success{background:#f0fdf4!important;border-color:#a7f3d0!important}.summary-card--info{background:#eff6ff!important;border-color:#bfdbfe!important}.summary-card--warning{background:#fffbeb!important;border-color:#fde68a!important}.summary-card--danger{background:#fef2f2!important;border-color:#fecaca!important}.progress-track{height:4px;background:rgba(0,0,0,.08);border-radius:2px;overflow:hidden}.progress-fill{height:100%;width:0;background:#1a56db;transition:width .5s ease}.summary-card--success .progress-fill{background:#0e9f6e}.summary-card--warning .progress-fill{background:#d97706}.summary-card--danger .progress-fill{background:#e02424}.alert-breakdown{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}.alert-chip{font-size:11px;font-weight:700;padding:3px 8px;border-radius:999px}.alert-chip--critical{background:#fef2f2;color:#e02424;border:1px solid #fecaca}.alert-chip--sinventa{background:#fffbeb;color:#d97706;border:1px solid #fde68a}.alert-chip--lento{background:#f5f3ff;color:#7c3aed;border:1px solid #ddd6fe}.empty-state{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;min-height:190px;padding:24px 16px;color:#6b7280}.empty-state__title{margin:0 0 8px;font-size:15px;font-weight:800;color:#111827}.empty-state__desc{margin:0;font-size:13px}.app-toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%) translateY(20px);max-width:320px;width:calc(100% - 32px);padding:11px 14px;border-radius:12px;background:#0f172a;color:#fff;font-size:13px;text-align:center;box-shadow:0 8px 24px rgba(0,0,0,.22);opacity:0;pointer-events:none;transition:opacity .2s ease,transform .2s ease;z-index:999}.app-toast.visible{opacity:1;transform:translateX(-50%) translateY(0)}button,.category-card-header,.store-bar__change,.app-header__refresh{min-height:44px}@media(max-width:760px){.app-main{padding:12px;padding-bottom:calc(24px + env(safe-area-inset-bottom,0px))}.summary-grid{grid-template-columns:1fr!important}}`;
+  style.textContent = `.app-main{width:min(100%,980px);margin:0 auto;padding:16px;padding-bottom:calc(24px + env(safe-area-inset-bottom,0px))}.app-header__left,.app-header__right{display:flex;align-items:center}.app-header__left{gap:12px}.app-header__right{gap:8px}.app-header__icon{color:#1a56db}.app-header__title{display:block;font-size:13px;font-weight:700}.app-header__store{display:block;font-size:11px;opacity:.75}.app-header__refresh{width:44px;height:44px;border:0;border-radius:10px;background:transparent;color:inherit}.app-header__refresh.loading svg{animation:spin .8s linear infinite}.store-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:12px auto 0;width:calc(100% - 24px);max-width:980px;padding:10px 14px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:14px;color:#111827}.store-bar.hidden{display:none!important}.store-bar__info{min-width:0}.store-bar__label{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:#64748b;font-weight:800}.store-bar__info strong{display:block;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.store-bar__change{height:36px;padding:0 12px;border:0;border-radius:999px;background:#1a56db;color:#fff;font-size:12px;font-weight:700}.selector-card--hidden{display:none!important}.selector-card--visible{display:block!important;animation:selectorDrop .16s ease-out}.general-action-card{background:#fff;border:1px solid #e5e7eb;border-radius:16px;margin-top:12px;box-shadow:0 8px 24px rgba(15,23,42,.06)}.general-select-button{margin-top:16px;min-width:190px}@keyframes selectorDrop{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}.summary-card__header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}.summary-card__label{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:#6b7280}.summary-card__icon{width:28px;height:28px;display:grid;place-items:center;border-radius:6px;background:rgba(255,255,255,.7);color:#1a56db}.summary-card__icon--alert{color:#e02424}.summary-card--success{background:#f0fdf4!important;border-color:#a7f3d0!important}.summary-card--info{background:#eff6ff!important;border-color:#bfdbfe!important}.summary-card--warning{background:#fffbeb!important;border-color:#fde68a!important}.summary-card--danger{background:#fef2f2!important;border-color:#fecaca!important}.progress-track{height:4px;background:rgba(0,0,0,.08);border-radius:2px;overflow:hidden}.progress-fill{height:100%;width:0;background:#1a56db;transition:width .5s ease}.summary-card--success .progress-fill{background:#0e9f6e}.summary-card--warning .progress-fill{background:#d97706}.summary-card--danger .progress-fill{background:#e02424}.alert-breakdown{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}.alert-chip{font-size:11px;font-weight:700;padding:3px 8px;border-radius:999px}.alert-chip--critical{background:#fef2f2;color:#e02424;border:1px solid #fecaca}.alert-chip--sinventa{background:#fffbeb;color:#d97706;border:1px solid #fde68a}.alert-chip--lento{background:#f5f3ff;color:#7c3aed;border:1px solid #ddd6fe}.empty-state{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;min-height:190px;padding:24px 16px;color:#6b7280}.empty-state__title{margin:0 0 8px;font-size:15px;font-weight:800;color:#111827}.empty-state__desc{margin:0;font-size:13px}.app-toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%) translateY(20px);max-width:320px;width:calc(100% - 32px);padding:11px 14px;border-radius:12px;background:#0f172a;color:#fff;font-size:13px;text-align:center;box-shadow:0 8px 24px rgba(0,0,0,.22);opacity:0;pointer-events:none;transition:opacity .2s ease,transform .2s ease;z-index:999}.app-toast.visible{opacity:1;transform:translateX(-50%) translateY(0)}button,.category-card-header,.store-bar__change,.app-header__refresh{min-height:44px}@media(max-width:760px){.app-main{padding:12px;padding-bottom:calc(24px + env(safe-area-inset-bottom,0px))}.summary-grid{grid-template-columns:1fr!important}}`;
   document.head.appendChild(style);
 }
 
