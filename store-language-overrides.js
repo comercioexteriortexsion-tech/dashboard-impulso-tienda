@@ -14,6 +14,14 @@ function getStorePriorityClass(value) {
   return 'priority-pill--neutral';
 }
 
+function getSimpleSectionLabel(estado) {
+  const value = String(estado || '').toLowerCase();
+  if (value.includes('prioritario')) return 'Urgente';
+  if (value.includes('revisión') || value.includes('revision')) return 'Revisar';
+  if (value.includes('controlado')) return 'OK';
+  return 'Revisar';
+}
+
 function getSimpleReason(item) {
   const criterio = String(item.criterio_critico || '').toLowerCase();
   const estado = String(item.estado_referencia || '').toLowerCase();
@@ -49,6 +57,34 @@ function formatStoreDays(value, label) {
   if (!days) return '';
   return `<span><b>${label}</b> ${formatNumber(days)} días</span>`;
 }
+
+renderSectionRow = function (row, index) {
+  const isOpen = openSectionKey === row.key;
+  const statusClass = getEstadoGrupoClass(row.estadoGrupo);
+  const accentClass = getSectionAccentClass(row.estadoGrupo, index);
+  const statusLabel = getSimpleSectionLabel(row.estadoGrupo);
+
+  return `
+    <article class="category-card ${isOpen ? 'open' : ''} ${accentClass}">
+      <button class="category-card-header" type="button" onclick="toggleSection('${escapeAttribute(row.key)}')" aria-expanded="${isOpen}">
+        <div class="rank-badge">${index + 1}</div>
+        <div class="category-main">
+          <strong>${escapeHtml(row.mundo)} / ${escapeHtml(row.seccion)}</strong>
+          <span>${formatNumber(row.totalReferencias)} referencias totales</span>
+        </div>
+        <div class="category-metric"><span>Hay</span><strong>${formatNumber(row.inventario)}</strong></div>
+        <div class="category-metric"><span>Vendió</span><strong>${formatNumber(row.ventaUnidades)}</strong></div>
+        <div class="category-metric alert-metric"><span>Revisar</span><strong>${formatNumber(row.alertas)}</strong></div>
+        <div class="category-metric percent-metric"><span>% revisar</span><strong>${formatPercent(row.porcentajeAlertas)}</strong></div>
+        <span class="status-pill ${statusClass}">${statusLabel}</span>
+        <span class="expand-indicator">${isOpen ? '⌃' : '⌄'}</span>
+      </button>
+      <div class="section-references ${isOpen ? '' : 'hidden'}">
+        ${isOpen ? renderSectionReferences(row.productosCriticos) : ''}
+      </div>
+    </article>
+  `;
+};
 
 renderSectionReferences = function (items) {
   const filteredItems = typeof filtrarReferenciasVariosDashboard === 'function'
