@@ -1,0 +1,147 @@
+/* =========================================================
+   Sprint 3.1 - Filas compactas de referencias
+   ========================================================= */
+
+.compact-ref-list {
+  display: grid;
+  gap: 0;
+  background: #ffffff;
+}
+
+.compact-ref-row {
+  display: grid;
+  grid-template-columns: minmax(118px, 1.15fr) 72px minmax(118px, 1fr);
+  grid-template-areas:
+    "main priority criteria"
+    "main metrics metrics";
+  gap: 6px 8px;
+  padding: 10px 10px;
+  border-bottom: 1px solid var(--border);
+  align-items: start;
+}
+
+.compact-ref-row:last-child {
+  border-bottom: none;
+}
+
+.compact-ref-main {
+  grid-area: main;
+  min-width: 0;
+}
+
+.compact-ref-main strong,
+.compact-ref-main span {
+  display: block;
+}
+
+.compact-ref-main strong {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 900;
+  line-height: 1.05;
+}
+
+.compact-ref-main span {
+  margin-top: 3px;
+  color: #475569;
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.18;
+}
+
+.compact-ref-priority {
+  grid-area: priority;
+  display: flex;
+  align-items: flex-start;
+}
+
+.compact-ref-criteria {
+  grid-area: criteria;
+  justify-self: start;
+  max-width: 100%;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  color: #c2410c;
+  font-size: 10.8px;
+  font-weight: 800;
+  line-height: 1.15;
+}
+
+.compact-ref-metrics {
+  grid-area: metrics;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  color: #334155;
+  font-size: 10.8px;
+  line-height: 1.1;
+}
+
+.compact-ref-metrics span {
+  white-space: nowrap;
+}
+
+.compact-ref-metrics b {
+  color: #64748b;
+  font-weight: 800;
+}
+
+@media (max-width: 760px) {
+  .compact-reference-table,
+  .compact-table-wrap {
+    display: none !important;
+  }
+
+  .compact-ref-list {
+    border-top: 1px solid var(--border);
+  }
+
+  .compact-ref-row {
+    grid-template-columns: minmax(112px, 1.1fr) 64px minmax(112px, 1fr);
+    gap: 5px 7px;
+    padding: 9px 8px;
+  }
+
+  .compact-ref-main strong {
+    font-size: 12.8px;
+  }
+
+  .compact-ref-main span {
+    font-size: 11px;
+  }
+
+  .compact-ref-criteria {
+    font-size: 10px;
+    padding: 4px 7px;
+  }
+
+  .compact-ref-metrics {
+    font-size: 10px;
+  }
+
+  .priority-pill {
+    min-width: 46px !important;
+    padding: 3px 6px !important;
+    font-size: 9.8px !important;
+  }
+}
+
+@media (max-width: 430px) {
+  .compact-ref-row {
+    grid-template-columns: minmax(118px, 1fr) 58px;
+    grid-template-areas:
+      "main priority"
+      "criteria criteria"
+      "metrics metrics";
+  }
+
+  .compact-ref-criteria {
+    border-radius: 10px;
+  }
+
+  .compact-ref-metrics {
+    gap: 4px 10px;
+  }
+}
