@@ -89,11 +89,6 @@
 }
 
 @media (max-width: 760px) {
-  .compact-reference-table,
-  .compact-table-wrap {
-    display: none !important;
-  }
-
   .compact-ref-list {
     border-top: 1px solid var(--border);
   }
@@ -125,6 +120,60 @@
     min-width: 46px !important;
     padding: 3px 6px !important;
     font-size: 9.8px !important;
+  }
+
+  /* Respaldo: si el navegador aún usa la tabla anterior, la compacta igual */
+  .compact-reference-table--criteria {
+    width: 100% !important;
+    min-width: 0 !important;
+    table-layout: fixed !important;
+    font-size: 11px !important;
+  }
+
+  .compact-reference-table--criteria th,
+  .compact-reference-table--criteria td {
+    padding: 6px 6px !important;
+    line-height: 1.12 !important;
+    vertical-align: top !important;
+  }
+
+  .compact-reference-table--criteria th:nth-child(n+4),
+  .compact-reference-table--criteria td:nth-child(n+4) {
+    display: none !important;
+  }
+
+  .compact-reference-table--criteria th:nth-child(1),
+  .compact-reference-table--criteria td:nth-child(1) {
+    width: 38% !important;
+  }
+
+  .compact-reference-table--criteria th:nth-child(2),
+  .compact-reference-table--criteria td:nth-child(2) {
+    width: 18% !important;
+  }
+
+  .compact-reference-table--criteria th:nth-child(3),
+  .compact-reference-table--criteria td:nth-child(3) {
+    width: 44% !important;
+  }
+
+  .compact-reference-table--criteria .ref-main strong {
+    font-size: 12.5px !important;
+    line-height: 1.05 !important;
+  }
+
+  .compact-reference-table--criteria .ref-main span {
+    font-size: 10.5px !important;
+    line-height: 1.12 !important;
+  }
+
+  .compact-reference-table--criteria .criteria-badge {
+    display: inline-block !important;
+    max-width: 100% !important;
+    padding: 3px 6px !important;
+    font-size: 9.7px !important;
+    line-height: 1.08 !important;
+    border-radius: 9px !important;
   }
 }
 
