@@ -1,16 +1,16 @@
 function getStorePriorityLabel(value) {
   const priority = String(value || '').toLowerCase();
-  if (priority.includes('alta')) return 'Urgente';
-  if (priority.includes('media')) return 'Revisar';
-  if (priority.includes('baja')) return 'Seguimiento';
+  if (priority.includes('urgente') || priority.includes('alta')) return 'Urgente';
+  if (priority.includes('revisar') || priority.includes('media')) return 'Revisar';
+  if (priority.includes('seguimiento') || priority.includes('baja')) return 'Seguimiento';
   return 'Revisar';
 }
 
 function getStorePriorityClass(value) {
   const priority = String(value || '').toLowerCase();
-  if (priority.includes('alta')) return 'priority-pill--alta';
-  if (priority.includes('media')) return 'priority-pill--media';
-  if (priority.includes('baja')) return 'priority-pill--baja';
+  if (priority.includes('urgente') || priority.includes('alta')) return 'priority-pill--alta';
+  if (priority.includes('revisar') || priority.includes('media')) return 'priority-pill--media';
+  if (priority.includes('seguimiento') || priority.includes('baja')) return 'priority-pill--baja';
   return 'priority-pill--neutral';
 }
 
@@ -23,6 +23,9 @@ function getSimpleSectionLabel(estado) {
 }
 
 function getSimpleReason(item) {
+  const motivoDesdeApi = String(item.motivo_simple || '').trim();
+  if (motivoDesdeApi) return motivoDesdeApi;
+
   const criterio = String(item.criterio_critico || '').toLowerCase();
   const estado = String(item.estado_referencia || '').toLowerCase();
 
@@ -42,6 +45,9 @@ function getSimpleReason(item) {
 }
 
 function getSimpleAction(item) {
+  const accionDesdeApi = String(item.accion_simple || '').trim();
+  if (accionDesdeApi) return accionDesdeApi;
+
   const reason = getSimpleReason(item).toLowerCase();
   if (reason.includes('no ha vendido') || reason.includes('sin vender')) {
     return 'Revisar si está exhibido y ubicarlo en una zona visible';
@@ -50,6 +56,10 @@ function getSimpleAction(item) {
     return 'Mejorar exhibición y revisar tallas disponibles';
   }
   return 'Revisar exhibición, ubicación y disponibilidad en piso';
+}
+
+function getPriorityValue(item) {
+  return item.prioridad_simple || item.prioridad_revision || '';
 }
 
 function formatStoreDays(value, label) {
@@ -98,8 +108,9 @@ renderSectionReferences = function (items) {
   return `
     <div class="compact-ref-list">
       ${filteredItems.map(item => {
-        const priorityClass = getStorePriorityClass(item.prioridad_revision);
-        const priorityLabel = getStorePriorityLabel(item.prioridad_revision);
+        const priorityValue = getPriorityValue(item);
+        const priorityClass = getStorePriorityClass(priorityValue);
+        const priorityLabel = getStorePriorityLabel(priorityValue);
         const reason = getSimpleReason(item);
         const action = getSimpleAction(item);
         return `
