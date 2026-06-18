@@ -28,6 +28,50 @@ injectControlledStyles = function () {
   injectCriteriaStyles();
 };
 
+function normalizarDescripcionDashboard(value) {
+  return String(value || '')
+    .toUpperCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\u00A0/g, ' ')
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .replace(/^[^A-Z0-9]+/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function esReferenciaVariosDashboard(item) {
+  const descripcion = normalizarDescripcionDashboard(
+    item.descripcion ||
+    item.descripcion_referencia ||
+    item.desc_referencia ||
+    item.nombre_referencia ||
+    item.producto ||
+    item.descripcion_producto
+  );
+
+  return descripcion.indexOf('VARIOS') === 0;
+}
+
+function filtrarReferenciasVariosDashboard(items) {
+  return (items || []).filter(item => !esReferenciaVariosDashboard(item));
+}
+
+function filtrarZonasVariosDashboard(rows) {
+  return (rows || []).map(row => {
+    const referenciasFiltradas = filtrarReferenciasVariosDashboard(row.productosCriticos || row.referencias || []);
+
+    return {
+      ...row,
+      productosCriticos: referenciasFiltradas,
+      referencias: referenciasFiltradas,
+      alertas: referenciasFiltradas.length,
+      porcentajeAlertas: row.totalReferencias ? referenciasFiltradas.length / row.totalReferencias : 0,
+      porcentaje_alertas: row.total_referencias ? referenciasFiltradas.length / row.total_referencias : row.porcentaje_alertas
+    };
+  }).filter(row => toNumber(row.alertas) > 0);
+}
+
 renderMundoSeccionCalculated = function (rows) {
   const container = document.getElementById('mundoSeccionContainer');
   if (!container) return;
@@ -37,7 +81,9 @@ renderMundoSeccionCalculated = function (rows) {
     return;
   }
 
-  if (!rows.length) {
+  const filteredRows = filtrarZonasVariosDashboard(rows);
+
+  if (!filteredRows.length) {
     openSectionKey = null;
     container.innerHTML = renderEmptyState('Sin zonas críticas', 'Esta tienda no tiene referencias que cumplan los criterios definidos para revisión.');
     return;
@@ -50,11 +96,13 @@ renderMundoSeccionCalculated = function (rows) {
     </div>
   `;
 
-  container.innerHTML = rows.map((row, index) => renderSectionRow(row, index)).join('') + note;
+  container.innerHTML = filteredRows.map((row, index) => renderSectionRow(row, index)).join('') + note;
 };
 
 renderSectionReferences = function (items) {
-  if (!items.length) {
+  const filteredItems = filtrarReferenciasVariosDashboard(items);
+
+  if (!filteredItems.length) {
     return renderEmptyState('Sin referencias para revisar', 'No hay referencias que cumplan los criterios críticos definidos.');
   }
 
@@ -74,7 +122,7 @@ renderSectionReferences = function (items) {
           </tr>
         </thead>
         <tbody>
-          ${items.map(item => {
+          ${filteredItems.map(item => {
             const colorClass = getColorClass(item.color_estado);
             const priorityClass = getPriorityClass(item.prioridad_revision);
             const criteriaBadges = renderCriteriaBadges(item.criterio_critico);
@@ -149,6 +197,7 @@ compareCriticalReferences = function (a, b) {
 };
 
 isVisibleCriticalReference = function (item) {
+  if (esReferenciaVariosDashboard(item)) return false;
   if (item.criterio_critico || item.prioridad_revision) return true;
   return CRITICAL_STATES.includes(item.estado_referencia) && toNumber(item.inventario_unidades) > PRIORITY_INVENTORY_MIN;
 };
