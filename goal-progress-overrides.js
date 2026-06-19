@@ -1,9 +1,57 @@
 /* =========================================================
    Sprint 3.4 - Avance esperado de meta mensual
-   Muestra en la tarjeta de meta solo dos datos:
-   - Cumplimiento real
-   - Debería ir
+   Muestra en la tarjeta de meta:
+   - Cumplimiento real con flecha
+   - Debería ir con tamaño 15% menor
    ========================================================= */
+
+function injectGoalProgressStyles() {
+  if (document.getElementById('goalProgressStyles')) return;
+
+  const style = document.createElement('style');
+  style.id = 'goalProgressStyles';
+  style.textContent = `
+    #kpiMetaCard #cumplimientoMeta {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      line-height: 1;
+    }
+
+    .goal-main-value--up {
+      color: #15803d !important;
+    }
+
+    .goal-main-value--down {
+      color: #dc2626 !important;
+    }
+
+    .goal-arrow {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.78em;
+      font-weight: 900;
+      line-height: 1;
+    }
+
+    #kpiMetaCard #ventaMetaTexto.goal-expected-line {
+      display: block;
+      margin-top: 8px;
+      font-size: 85% !important;
+      line-height: 1.05;
+      font-weight: 800;
+      color: #334155;
+    }
+
+    #kpiMetaCard #ventaMetaTexto.goal-expected-line strong {
+      font-size: 1em;
+      font-weight: 900;
+      color: #0f172a;
+    }
+  `;
+  document.head.appendChild(style);
+}
 
 normalizeSummary = function (resumen) {
   return {
@@ -46,14 +94,30 @@ renderSummaryCalculated = function (resumen) {
 };
 
 pintarSummary = function ({ cumplimiento, avanceEsperadoMes, ventaMes, metaMes, inventarioTotal, alertasPrincipales, sinVenta, criticos, lentos }) {
+  injectGoalProgressStyles();
+
   const cumplimientoValue = cumplimiento === null ? 0 : cumplimiento;
   const cumplimientoPct = Math.max(0, Math.min(cumplimientoValue * 100, 100));
-  const esperadoTexto = avanceEsperadoMes === null || avanceEsperadoMes === 0
-    ? 'Debería ir: -'
-    : `Debería ir: ${formatPercent(avanceEsperadoMes)}`;
+  const tieneEsperado = avanceEsperadoMes !== null && avanceEsperadoMes > 0;
+  const vaBienContraDia = tieneEsperado ? cumplimientoValue >= avanceEsperadoMes : cumplimientoValue >= 1;
+  const arrow = vaBienContraDia ? '▲' : '▼';
+  const valueClass = vaBienContraDia ? 'goal-main-value--up' : 'goal-main-value--down';
+  const esperadoTexto = tieneEsperado ? formatPercent(avanceEsperadoMes) : '-';
 
-  setText('cumplimientoMeta', cumplimiento === null ? '-' : formatPercent(cumplimiento));
-  setText('ventaMetaTexto', esperadoTexto);
+  const cumplimientoMeta = document.getElementById('cumplimientoMeta');
+  if (cumplimientoMeta) {
+    cumplimientoMeta.className = valueClass;
+    cumplimientoMeta.innerHTML = cumplimiento === null
+      ? '-'
+      : `<span>${formatPercent(cumplimiento)}</span><span class="goal-arrow">${arrow}</span>`;
+  }
+
+  const ventaMetaTexto = document.getElementById('ventaMetaTexto');
+  if (ventaMetaTexto) {
+    ventaMetaTexto.className = 'goal-expected-line';
+    ventaMetaTexto.innerHTML = `Debería ir: <strong>${esperadoTexto}</strong>`;
+  }
+
   setText('inventarioTotal', formatNumber(inventarioTotal));
   setText('referenciasCriticas', formatNumber(alertasPrincipales));
   setText('alertasTexto', alertasPrincipales === 0 ? 'Sin alertas activas' : 'Productos que necesitan atención');
@@ -63,7 +127,7 @@ pintarSummary = function ({ cumplimiento, avanceEsperadoMes, ventaMes, metaMes, 
   const alertasCard = document.getElementById('kpiAlertasCard');
 
   if (metaCard) {
-    metaCard.className = `summary-card ${cumplimientoValue >= 1 ? 'summary-card--success' : cumplimientoValue >= 0.75 ? 'summary-card--info' : 'summary-card--warning'}`;
+    metaCard.className = `summary-card ${vaBienContraDia ? 'summary-card--success' : 'summary-card--danger'}`;
   }
 
   if (inventarioCard) inventarioCard.className = 'summary-card summary-card--info';
