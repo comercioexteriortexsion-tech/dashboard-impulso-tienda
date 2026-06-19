@@ -68,6 +68,22 @@ function formatStoreDays(value, label) {
   return `<span><b>${label}</b> ${formatNumber(days)} días</span>`;
 }
 
+function formatRecentSalesMetric(item) {
+  const units15 = toNumber(item.venta_unidades_15d);
+  const days15 = toNumber(item.dias_con_venta_15d);
+  const sinVenta15 = item.sin_venta_15d === true || String(item.sin_venta_15d).toLowerCase() === 'true';
+
+  if (sinVenta15 || units15 === 0) {
+    return '<span><b>Últimos 15 días</b> no vendió</span>';
+  }
+
+  if (days15 > 0) {
+    return `<span><b>Últimos 15 días</b> vendió ${formatNumber(units15)} und. en ${formatNumber(days15)} días</span>`;
+  }
+
+  return `<span><b>Últimos 15 días</b> vendió ${formatNumber(units15)} und.</span>`;
+}
+
 renderSectionRow = function (row, index) {
   const isOpen = openSectionKey === row.key;
   const statusClass = getEstadoGrupoClass(row.estadoGrupo);
@@ -127,8 +143,8 @@ renderSectionReferences = function (items) {
             </div>
             <div class="compact-ref-metrics">
               <span><b>Hay</b> ${formatNumber(item.inventario_unidades)} und.</span>
+              ${formatRecentSalesMetric(item)}
               ${toNumber(item.cobertura_dias) ? `<span><b>Venta lenta</b> ${formatCoverage(item.cobertura_dias)}</span>` : ''}
-              ${formatStoreDays(item.dias_sin_movimiento, 'Sin venta')}
               ${formatStoreDays(item.dias_desde_ultimo_despacho, 'Llegó hace')}
             </div>
             <div class="compact-ref-action"><b>Qué hacer:</b> ${escapeHtml(action)}</div>
