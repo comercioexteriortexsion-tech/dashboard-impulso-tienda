@@ -144,10 +144,10 @@ renderSectionReferences = function (items) {
             <div class="compact-ref-metrics">
               <span><b>Hay</b> ${formatNumber(item.inventario_unidades)} und.</span>
               ${formatRecentSalesMetric(item)}
-              ${toNumber(item.cobertura_dias) ? `<span><b>Venta lenta</b> ${formatCoverage(item.cobertura_dias)}</span>` : ''}
+              ${toNumber(item.cobertura_dias) ? `<span><b>Rotación</b> ${formatCoverage(item.cobertura_dias)}</span>` : ''}
               ${formatStoreDays(item.dias_desde_ultimo_despacho, 'Llegó hace')}
             </div>
-            <div class="compact-ref-action"><b>Qué hacer:</b> ${escapeHtml(action)}</div>
+            <div class="compact-ref-action"><b>Plan de acción sugerido:</b> ${escapeHtml(action)}</div>
           </div>
         `;
       }).join('')}
