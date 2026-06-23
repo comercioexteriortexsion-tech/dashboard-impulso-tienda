@@ -4,6 +4,7 @@
    - Tienda
    - Cómo va
    - Cómo debería ir
+   Orden: mayor cumplimiento a menor cumplimiento
    ========================================================= */
 
 let storeGoalRowsCache = null;
@@ -150,13 +151,8 @@ function injectStoreGoalModalStyles() {
       white-space: nowrap;
     }
 
-    .store-goal-percent--up {
-      color: #15803d;
-    }
-
-    .store-goal-percent--down {
-      color: #dc2626;
-    }
+    .store-goal-percent--up { color: #15803d; }
+    .store-goal-percent--down { color: #dc2626; }
 
     .store-goal-expected {
       color: #0f172a;
@@ -196,35 +192,23 @@ function injectStoreGoalModalStyles() {
     }
 
     @media (min-width: 720px) {
-      .store-goal-modal-backdrop {
-        align-items: center;
-      }
+      .store-goal-modal-backdrop { align-items: center; }
     }
 
     @media (max-width: 560px) {
-      .store-goal-modal-backdrop {
-        padding: 10px;
-      }
-
+      .store-goal-modal-backdrop { padding: 10px; }
       .store-goal-modal {
         border-radius: 24px 24px 18px 18px;
         max-height: 86vh;
       }
-
       .store-goal-table th:nth-child(4),
-      .store-goal-table td:nth-child(4) {
-        display: none;
-      }
-
+      .store-goal-table td:nth-child(4) { display: none; }
       .store-goal-store {
         max-width: 150px;
         font-size: 0.79rem;
       }
-
       .store-goal-percent,
-      .store-goal-expected {
-        font-size: 0.9rem;
-      }
+      .store-goal-expected { font-size: 0.9rem; }
     }
   `;
   document.head.appendChild(style);
@@ -257,7 +241,7 @@ function renderStoreGoalModalShell() {
       <div class="store-goal-modal__header">
         <div>
           <h3 class="store-goal-modal__title" id="storeGoalModalTitle">Cumplimiento por tienda</h3>
-          <p class="store-goal-modal__subtitle">Compara cómo va cada tienda frente a cómo debería ir hoy.</p>
+          <p class="store-goal-modal__subtitle">Ordenado de mayor a menor cumplimiento.</p>
         </div>
         <button class="store-goal-modal__close" type="button" aria-label="Cerrar" onclick="closeStoreGoalModal()">×</button>
       </div>
@@ -293,41 +277,31 @@ async function getStoreGoalRows() {
 
   storeGoalLoading = true;
 
-  const stores = Array.isArray(storesList) ? storesList.filter(Boolean) : [];
-  const rows = await Promise.all(stores.map(async storeName => {
-    try {
-      const dashboard = storeDashboards[storeName] || await loadStoreDashboard(storeName);
-      const resumen = dashboard && dashboard.resumen ? dashboard.resumen : {};
-      const cumplimiento = toNumber(resumen.cumplimiento_meta);
-      const esperado = toNumber(resumen.avance_esperado_mes);
-      const vaBien = esperado > 0 ? cumplimiento >= esperado : cumplimiento >= 1;
+  try {
+    const stores = Array.isArray(storesList) ? storesList.filter(Boolean) : [];
+    const rows = await Promise.all(stores.map(async storeName => {
+      try {
+        const dashboard = storeDashboards[storeName] || await loadStoreDashboard(storeName);
+        const resumen = dashboard && dashboard.resumen ? dashboard.resumen : {};
+        const cumplimiento = toNumber(resumen.cumplimiento_meta);
+        const esperado = toNumber(resumen.avance_esperado_mes);
+        const vaBien = esperado > 0 ? cumplimiento >= esperado : cumplimiento >= 1;
 
-      return {
-        tienda: storeName,
-        cumplimiento,
-        esperado,
-        vaBien
-      };
-    } catch (error) {
-      console.warn('No se pudo cargar tienda para tabla de meta:', storeName, error);
-      return {
-        tienda: storeName,
-        cumplimiento: 0,
-        esperado: 0,
-        vaBien: false
-      };
-    }
-  }));
+        return { tienda: storeName, cumplimiento, esperado, vaBien };
+      } catch (error) {
+        console.warn('No se pudo cargar tienda para tabla de meta:', storeName, error);
+        return { tienda: storeName, cumplimiento: 0, esperado: 0, vaBien: false };
+      }
+    }));
 
-  storeGoalRowsCache = rows
-    .filter(row => row.tienda)
-    .sort((a, b) => {
-      if (a.vaBien !== b.vaBien) return a.vaBien ? 1 : -1;
-      return a.cumplimiento - b.cumplimiento;
-    });
+    storeGoalRowsCache = rows
+      .filter(row => row.tienda)
+      .sort((a, b) => b.cumplimiento - a.cumplimiento);
 
-  storeGoalLoading = false;
-  return storeGoalRowsCache;
+    return storeGoalRowsCache;
+  } finally {
+    storeGoalLoading = false;
+  }
 }
 
 function renderStoreGoalRows(rows) {
