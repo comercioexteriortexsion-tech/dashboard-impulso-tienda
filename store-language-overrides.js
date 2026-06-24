@@ -69,7 +69,7 @@ renderSectionRow = function (row, index) {
         <div class="category-metric alert-metric"><span>Revisar</span><strong>${formatNumber(row.alertas)}</strong></div>
         <div class="category-metric percent-metric"><span>% revisar</span><strong>${formatPercent(row.porcentajeAlertas)}</strong></div>
         <span class="status-pill ${statusClass}">${statusLabel}</span>
-        <span class="expand-indicator">${isOpen ? '⌃' : '⌄'}</span>
+        <span class="expand-indicator">${isOpen ? 'Cerrar' : 'Ver'}</span>
       </button>
       <div class="section-references ${isOpen ? '' : 'hidden'}">
         ${isOpen ? renderSectionReferences(row.productosCriticos) : ''}
@@ -85,6 +85,12 @@ renderSectionReferences = function (items) {
   }
 
   return `
+    <div class="reference-detail-head">
+      <div>
+        <strong>Referencias para revisar</strong>
+        <span>Gestiona estas prendas en piso según el motivo y el plan de acción.</span>
+      </div>
+    </div>
     <div class="compact-ref-list">
       ${filteredItems.map(item => {
         const priorityValue = getPriorityValue(item);
