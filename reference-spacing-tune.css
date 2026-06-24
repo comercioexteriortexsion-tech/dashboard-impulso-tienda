@@ -1,0 +1,10 @@
+.compact-ref-list{gap:6px!important;padding:5px!important;background:#eef2f7!important;border-color:rgba(148,163,184,.72)!important}
+.compact-ref-row{gap:4px 8px!important;padding:10px 10px 9px 11px!important;border:1.5px solid rgba(148,163,184,.62)!important;border-left-width:5px!important;border-radius:13px!important;box-shadow:0 1px 3px rgba(15,23,42,.055)!important}
+.compact-ref-main strong{font-size:12.8px!important;line-height:1.05!important}
+.compact-ref-main span{margin-top:2px!important;font-size:10.9px!important;line-height:1.1!important}
+.compact-ref-metrics{gap:4px 10px!important;font-size:10.4px!important;line-height:1.18!important}
+.compact-ref-criteria{padding:4px 9px!important;font-size:10.2px!important;line-height:1.15!important}
+.compact-ref-action{margin-top:4px!important;padding:6px 8px!important;font-size:10.3px!important;line-height:1.2!important}
+.reference-detail-head{margin:6px 0 6px!important;padding:8px 10px!important}
+@media(max-width:760px){.compact-ref-list{gap:6px!important;padding:5px!important}.compact-ref-row{gap:4px 6px!important;padding:9px 8px 8px 9px!important;border-left-width:5px!important;border-radius:12px!important}}
+@media(max-width:430px){.compact-ref-list{gap:5px!important;padding:4px!important}.compact-ref-row{padding:8px 7px 7px 8px!important}.compact-ref-main strong{font-size:12.2px!important}.compact-ref-main span,.compact-ref-metrics,.compact-ref-criteria,.compact-ref-action{font-size:10px!important}}
