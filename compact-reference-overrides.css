@@ -6,6 +6,54 @@
   display: none !important;
 }
 
+.reference-detail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 10px 0 8px;
+  padding: 10px 12px;
+  border-radius: 16px;
+  background: #f8fafc;
+  border: 1px solid rgba(226, 232, 240, 0.95);
+}
+
+.reference-detail-head strong,
+.reference-detail-head span {
+  display: block;
+}
+
+.reference-detail-head strong {
+  color: #0f172a;
+  font-size: 0.86rem;
+  font-weight: 950;
+  letter-spacing: -0.02em;
+}
+
+.reference-detail-head span {
+  margin-top: 2px;
+  color: #64748b;
+  font-size: 0.74rem;
+  font-weight: 750;
+  line-height: 1.12;
+}
+
+.expand-indicator {
+  min-width: 46px;
+  justify-content: center;
+  padding: 6px 9px;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 0.72rem;
+  font-weight: 950;
+}
+
+.category-card.open .expand-indicator {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
 .compact-ref-list {
   display: grid;
   gap: 0;
