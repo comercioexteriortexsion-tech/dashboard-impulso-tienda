@@ -1,4 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwCfspSz1mtp2mrNrqm9fezzLArIMv7Wzxbg3vqYMxZ4xvUbrLtc0F6JUnyAB5eFucO/exec';
+const API_TIMEOUT_MS = 28000;
 
 let storeDashboards = {};
 let storesList = [];
@@ -7,6 +8,7 @@ let rankingCumplimientoTiendas = [];
 let rankingAlertasTiendas = [];
 let currentStoreName = '';
 let openSectionKey = null;
+let lastLoadError = '';
 
 const storeSelect = document.getElementById('storeSelect');
 const loadingOverlay = document.getElementById('loadingOverlay');
@@ -26,7 +28,7 @@ async function initDashboard() {
   bindChangeStoreButton();
 
   try {
-    showLoading(true);
+    showLoading(true, 'Cargando información...');
     await loadInitialData();
 
     if (storeSelect) {
@@ -38,8 +40,12 @@ async function initDashboard() {
     renderGeneralDashboard();
   } catch (error) {
     console.error('Error cargando dashboard:', error);
-    renderErrorState();
-    showToast('No se pudo cargar la información. Actualiza Apps Script y vuelve a intentar.');
+    lastLoadError = error.message || String(error);
+    renderErrorState(
+      'No fue posible cargar el dashboard',
+      getFriendlyErrorMessage(error)
+    );
+    showToast('No se pudo cargar la información. Revisa Apps Script.');
   } finally {
     showLoading(false);
   }
@@ -47,19 +53,33 @@ async function initDashboard() {
 
 async function loadInitialData() {
   const json = await fetchJson(buildApiUrl({ modo: 'inicio' }));
-
-  if (!json.ok || !json.resumen_general || !Array.isArray(json.tiendas)) {
-    throw new Error(json.error || 'La API de inicio no devolvió la estructura esperada.');
-  }
+  validateInitialPayload(json);
 
   storeDashboards = {};
-  storesList = json.tiendas || [];
+  storesList = Array.isArray(json.tiendas) ? json.tiendas.filter(Boolean) : [];
   generalSummary = normalizeSummary(json.resumen_general || {});
   rankingCumplimientoTiendas = normalizeRankingCumplimiento(json.ranking_cumplimiento || []);
   rankingAlertasTiendas = normalizeRankingAlertas(json.ranking_alertas || []);
+  lastLoadError = '';
 
   setText('ultimaActualizacion', formatDate(json.ultima_actualizacion) || 'Sin dato');
   loadStoreSelector(storesList);
+}
+
+function validateInitialPayload(json) {
+  if (!json) throw new Error('Apps Script no devolvió respuesta.');
+  if (json.ok !== true) throw new Error(json.error || 'Apps Script devolvió error.');
+  if (!json.resumen_general) throw new Error('Falta resumen_general en modo=inicio.');
+  if (!Array.isArray(json.tiendas)) throw new Error('Falta lista de tiendas en modo=inicio.');
+  if (!Array.isArray(json.ranking_cumplimiento)) throw new Error('Falta ranking_cumplimiento en modo=inicio.');
+  if (!Array.isArray(json.ranking_alertas)) throw new Error('Falta ranking_alertas en modo=inicio.');
+}
+
+function validateStorePayload(json, storeName) {
+  if (!json) throw new Error('Apps Script no devolvió respuesta para la tienda.');
+  if (json.ok !== true) throw new Error(json.error || 'Apps Script devolvió error para la tienda.');
+  if (!json.resumen) throw new Error(`Falta resumen para ${storeName}.`);
+  if (!Array.isArray(json.zonas)) throw new Error(`Falta arreglo de zonas para ${storeName}.`);
 }
 
 async function handleStoreChange(storeName) {
@@ -71,16 +91,23 @@ async function handleStoreChange(storeName) {
     return;
   }
 
+  if (!storesList.includes(currentStoreName)) {
+    showToast('La tienda seleccionada no está disponible en la base actual.');
+    renderErrorState('Tienda no disponible', 'Actualiza el dashboard o selecciona otra tienda.');
+    return;
+  }
+
   updateActiveStoreUI(currentStoreName, false);
 
   try {
-    showLoading(true);
+    showLoading(true, `Cargando ${currentStoreName}...`);
     await loadStoreDashboard(currentStoreName);
     renderDashboard(currentStoreName);
   } catch (error) {
     console.error('Error cargando tienda:', error);
-    showToast('No se pudo cargar esta tienda. Intenta actualizar.');
-    renderErrorState();
+    lastLoadError = error.message || String(error);
+    showToast('No se pudo cargar esta tienda.');
+    renderErrorState('No fue posible cargar la tienda', getFriendlyErrorMessage(error));
   } finally {
     showLoading(false);
   }
@@ -90,10 +117,7 @@ async function loadStoreDashboard(storeName, forceRefresh = false) {
   if (!forceRefresh && storeDashboards[storeName]) return storeDashboards[storeName];
 
   const json = await fetchJson(buildApiUrl({ modo: 'tienda', nombre: storeName }));
-
-  if (!json.ok) {
-    throw new Error(json.error || 'Error al cargar tienda.');
-  }
+  validateStorePayload(json, storeName);
 
   const dashboard = normalizeOptimizedDashboard(json);
   storeDashboards[storeName] = dashboard;
@@ -122,11 +146,11 @@ function normalizeSummary(resumen) {
 }
 
 function normalizeRankingCumplimiento(rows) {
-  return (rows || []).map(row => {
+  return (rows || []).map((row, index) => {
     const cumplimiento = toNumber(row.cumplimiento_meta);
     const esperado = toNumber(row.avance_esperado_mes);
     return {
-      posicion: toNumber(row.posicion),
+      posicion: toNumber(row.posicion) || index + 1,
       tienda: row.nombre_almacen || row.tienda || '',
       cumplimiento,
       esperado,
@@ -138,8 +162,8 @@ function normalizeRankingCumplimiento(rows) {
 }
 
 function normalizeRankingAlertas(rows) {
-  return (rows || []).map(row => ({
-    posicion: toNumber(row.posicion),
+  return (rows || []).map((row, index) => ({
+    posicion: toNumber(row.posicion) || index + 1,
     tienda: row.nombre_almacen || row.tienda || '',
     alertas: toNumber(row.alertas_total),
     sinVenta: toNumber(row.sin_venta),
@@ -179,8 +203,21 @@ function buildApiUrl(params) {
 }
 
 async function fetchJson(url) {
-  const response = await fetch(url, { cache: 'no-store' });
-  return response.json();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(url, { cache: 'no-store', signal: controller.signal });
+    if (!response.ok) throw new Error(`HTTP ${response.status}: no fue posible consultar Apps Script.`);
+    return await response.json();
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      throw new Error('La consulta superó el tiempo máximo de espera. Revisa Apps Script o la conexión.');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function bindRefreshButton() {
@@ -191,7 +228,7 @@ function bindRefreshButton() {
 
     try {
       showToast('Actualizando información...');
-      showLoading(true);
+      showLoading(true, 'Actualizando información...');
       await loadInitialData();
 
       if (currentStoreName) {
@@ -205,7 +242,9 @@ function bindRefreshButton() {
       showToast('Información actualizada.');
     } catch (error) {
       console.error('Error actualizando:', error);
-      showToast('No se pudo actualizar. Revisa la conexión.');
+      lastLoadError = error.message || String(error);
+      renderErrorState('No fue posible actualizar', getFriendlyErrorMessage(error));
+      showToast('No se pudo actualizar. Revisa Apps Script.');
     } finally {
       showLoading(false);
       setTimeout(() => refreshButton.classList.remove('loading'), 350);
@@ -241,6 +280,14 @@ function loadStoreSelector(stores) {
   if (!storeSelect) return;
   const sortedStores = (stores || []).filter(Boolean).sort();
   storeSelect.innerHTML = '<option value="">Selecciona una tienda</option>';
+
+  if (!sortedStores.length) {
+    storeSelect.innerHTML = '<option value="">No hay tiendas disponibles</option>';
+    storeSelect.disabled = true;
+    return;
+  }
+
+  storeSelect.disabled = false;
   sortedStores.forEach(store => {
     const option = document.createElement('option');
     option.value = store;
@@ -260,12 +307,25 @@ function renderGeneralDashboard() {
   if (!container) return;
 
   const totalTiendas = toNumber(generalSummary && generalSummary.total_tiendas);
+  const updatedText = generalSummary && generalSummary.fecha_corte_datos
+    ? `Fecha de corte: ${formatDate(generalSummary.fecha_corte_datos)}.`
+    : '';
+
+  if (!storesList.length) {
+    container.innerHTML = renderEmptyState(
+      'No hay tiendas disponibles',
+      'Apps Script respondió, pero no entregó tiendas para consultar. Revisa la tabla dashboard_tiendas.'
+    );
+    return;
+  }
+
   container.innerHTML = `
     <div class="empty-state general-action-card" role="status">
       <p class="empty-state__title">Vista general de tiendas</p>
       <p class="empty-state__desc">
         Estás viendo el cumplimiento consolidado${totalTiendas ? ` de ${formatNumber(totalTiendas)} tiendas` : ''}.
         Selecciona una tienda para revisar zonas, secciones y referencias críticas.
+        ${updatedText}
       </p>
       <button class="store-bar__change general-select-button" type="button" onclick="showStoreSelector()">Seleccionar una tienda</button>
     </div>
@@ -279,7 +339,7 @@ function renderDashboard(storeName) {
     return;
   }
   renderSummaryCalculated(dashboard.resumen);
-  renderMundoSeccionCalculated(dashboard.zonas);
+  renderMundoSeccionCalculated(dashboard.zonas || []);
 }
 
 function renderSummaryCalculated(resumen) {
@@ -334,9 +394,12 @@ function renderMundoSeccionCalculated(rows) {
     renderGeneralDashboard();
     return;
   }
-  if (!rows.length) {
+  if (!Array.isArray(rows) || !rows.length) {
     openSectionKey = null;
-    container.innerHTML = renderEmptyState('Sin zonas críticas', 'Esta tienda no tiene referencias que cumplan los criterios definidos para revisión.');
+    container.innerHTML = renderEmptyState(
+      'Sin zonas críticas',
+      'Esta tienda no tiene referencias que cumplan los criterios definidos para revisión.'
+    );
     return;
   }
   const note = `
@@ -361,10 +424,10 @@ function renderSectionRow(row, index) {
         <div class="category-metric"><span>Vendió</span><strong>${formatNumber(row.ventaUnidades)}</strong></div>
         <div class="category-metric alert-metric"><span>Revisar</span><strong>${formatNumber(row.alertas)}</strong></div>
         <div class="category-metric percent-metric"><span>% revisar</span><strong>${formatPercent(row.porcentajeAlertas)}</strong></div>
-        <span class="status-pill ${statusClass}">${row.estadoGrupo}</span>
+        <span class="status-pill ${statusClass}">${escapeHtml(row.estadoGrupo)}</span>
         <span class="expand-indicator">${isOpen ? '⌃' : '⌄'}</span>
       </button>
-      <div class="section-references ${isOpen ? '' : 'hidden'}">${isOpen ? renderSectionReferences(row.productosCriticos) : ''}</div>
+      <div class="section-references ${isOpen ? '' : 'hidden'}">${isOpen ? renderSectionReferences(row.productosCriticos || []) : ''}</div>
     </article>
   `;
 }
@@ -379,13 +442,34 @@ function toggleSection(sectionKey) {
   renderDashboard(currentStoreName);
 }
 
-function renderErrorState() {
+function renderErrorState(title = 'No fue posible cargar la información', description = 'Revisa la conexión o intenta actualizar de nuevo.') {
   const container = document.getElementById('mundoSeccionContainer');
-  if (container) container.innerHTML = renderEmptyState('No fue posible cargar la información', 'Revisa la conexión o intenta actualizar de nuevo.');
+  if (container) {
+    container.innerHTML = `
+      <div class="empty-state empty-state--error" role="alert">
+        <p class="empty-state__title">${escapeHtml(title)}</p>
+        <p class="empty-state__desc">${escapeHtml(description)}</p>
+        ${lastLoadError ? `<p class="empty-state__desc error-detail">Detalle técnico: ${escapeHtml(lastLoadError)}</p>` : ''}
+        <button class="store-bar__change general-select-button" type="button" onclick="location.reload()">Volver a cargar</button>
+      </div>
+    `;
+  }
+
+  renderSummaryCalculated({});
 }
 
 function renderEmptyState(title, description) {
   return `<div class="empty-state" role="status"><p class="empty-state__title">${escapeHtml(title)}</p><p class="empty-state__desc">${escapeHtml(description)}</p></div>`;
+}
+
+function getFriendlyErrorMessage(error) {
+  const message = String(error && error.message ? error.message : error || '');
+  if (message.includes('ranking_cumplimiento')) return 'Falta la tabla o respuesta de ranking de cumplimiento. Ejecuta la generación de tablas calculadas en Apps Script.';
+  if (message.includes('ranking_alertas')) return 'Falta la tabla o respuesta de ranking de alertas. Ejecuta la generación de tablas calculadas en Apps Script.';
+  if (message.includes('tiendas')) return 'Falta la lista de tiendas calculada. Revisa la hoja dashboard_tiendas.';
+  if (message.includes('zonas')) return 'Falta la información de zonas para esta tienda. Revisa dashboard_zonas.';
+  if (message.includes('tiempo máximo')) return message;
+  return 'Revisa que Apps Script esté publicado, que modo=inicio responda y que las tablas calculadas existan.';
 }
 
 function getEstadoGrupoClass(estado) {
@@ -412,12 +496,16 @@ function injectControlledStyles() {
     .general-action-card{padding:28px 18px;}
     .general-select-button{margin-top:14px;}
     .info-note{margin-top:12px;padding:12px 14px;border-radius:16px;background:#f8fafc;border:1px solid #e2e8f0;color:#475569;font-size:.82rem;display:flex;flex-direction:column;gap:3px;}
+    .empty-state--error{border:1px solid #fecaca;background:#fff7f7;}
+    .error-detail{margin-top:8px;font-size:.75rem;color:#991b1b;word-break:break-word;}
   `;
   document.head.appendChild(style);
 }
 
-function showLoading(show) {
+function showLoading(show, message) {
   if (!loadingOverlay) return;
+  const loadingText = loadingOverlay.querySelector('p');
+  if (loadingText && message) loadingText.textContent = message;
   loadingOverlay.classList.toggle('hidden', !show);
 }
 
