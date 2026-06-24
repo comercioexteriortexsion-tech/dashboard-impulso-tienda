@@ -22,44 +22,16 @@ function getSimpleSectionLabel(estado) {
   return 'Revisar';
 }
 
-function getSimpleReason(item) {
-  const motivoDesdeApi = String(item.motivo_simple || '').trim();
-  if (motivoDesdeApi) return motivoDesdeApi;
-
-  const criterio = String(item.criterio_critico || '').toLowerCase();
-  const estado = String(item.estado_referencia || '').toLowerCase();
-
-  if (criterio.includes('despacho') || criterio.includes('10 días')) {
-    return 'Llegó hace varios días y no ha vendido';
-  }
-  if (criterio.includes('5 días') || criterio.includes('sin venta') || estado.includes('sin venta')) {
-    return 'Lleva varios días sin vender';
-  }
-  if (criterio.includes('cobertura') || criterio.includes('>60') || toNumber(item.cobertura_dias) > 60) {
-    return 'Mucho inventario y poca venta';
-  }
-  if (toNumber(item.inventario_unidades) > 24) {
-    return 'Hay muchas unidades para revisar';
-  }
-  return 'Producto para revisar en tienda';
-}
-
-function getSimpleAction(item) {
-  const accionDesdeApi = String(item.accion_simple || '').trim();
-  if (accionDesdeApi) return accionDesdeApi;
-
-  const reason = getSimpleReason(item).toLowerCase();
-  if (reason.includes('no ha vendido') || reason.includes('sin vender')) {
-    return 'Revisar si está exhibido y ubicarlo en una zona visible';
-  }
-  if (reason.includes('mucho inventario')) {
-    return 'Mejorar exhibición y revisar tallas disponibles';
-  }
-  return 'Revisar exhibición, ubicación y disponibilidad en piso';
-}
-
 function getPriorityValue(item) {
   return item.prioridad_simple || item.prioridad_revision || '';
+}
+
+function getReasonFromApi(item) {
+  return String(item.motivo_simple || item.criterio_critico || 'Producto para revisar en tienda').trim();
+}
+
+function getActionFromApi(item) {
+  return String(item.accion_simple || item.accion_sugerida || 'Revisar exhibición, ubicación y disponibilidad en piso').trim();
 }
 
 function formatStoreDays(value, label) {
@@ -73,14 +45,8 @@ function formatRecentSalesMetric(item) {
   const days15 = toNumber(item.dias_con_venta_15d);
   const sinVenta15 = item.sin_venta_15d === true || String(item.sin_venta_15d).toLowerCase() === 'true';
 
-  if (sinVenta15 || units15 === 0) {
-    return '<span><b>Últimos 15 días</b> no vendió</span>';
-  }
-
-  if (days15 > 0) {
-    return `<span><b>Últimos 15 días</b> vendió ${formatNumber(units15)} und. en ${formatNumber(days15)} días</span>`;
-  }
-
+  if (sinVenta15 || units15 === 0) return '<span><b>Últimos 15 días</b> no vendió</span>';
+  if (days15 > 0) return `<span><b>Últimos 15 días</b> vendió ${formatNumber(units15)} und. en ${formatNumber(days15)} días</span>`;
   return `<span><b>Últimos 15 días</b> vendió ${formatNumber(units15)} und.</span>`;
 }
 
@@ -113,12 +79,9 @@ renderSectionRow = function (row, index) {
 };
 
 renderSectionReferences = function (items) {
-  const filteredItems = typeof filtrarReferenciasVariosDashboard === 'function'
-    ? filtrarReferenciasVariosDashboard(items)
-    : (items || []);
-
+  const filteredItems = items || [];
   if (!filteredItems.length) {
-    return renderEmptyState('Sin referencias para revisar', 'No hay referencias que cumplan los criterios críticos definidos.');
+    return renderEmptyState('Sin referencias para revisar', 'No hay referencias que cumplan los criterios definidos.');
   }
 
   return `
@@ -127,8 +90,8 @@ renderSectionReferences = function (items) {
         const priorityValue = getPriorityValue(item);
         const priorityClass = getStorePriorityClass(priorityValue);
         const priorityLabel = getStorePriorityLabel(priorityValue);
-        const reason = getSimpleReason(item);
-        const action = getSimpleAction(item);
+        const reason = getReasonFromApi(item);
+        const action = getActionFromApi(item);
         return `
           <div class="compact-ref-row">
             <div class="compact-ref-main">
