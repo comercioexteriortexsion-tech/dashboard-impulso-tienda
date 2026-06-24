@@ -3,15 +3,14 @@ function getStorePriorityLabel(value) {
   if (priority.includes('urgente') || priority.includes('alta')) return 'Urgente';
   if (priority.includes('revisar') || priority.includes('media')) return 'Revisar';
   if (priority.includes('seguimiento') || priority.includes('baja')) return 'Seguimiento';
-  return 'Revisar';
+  return 'Seguimiento';
 }
 
 function getStorePriorityClass(value) {
-  const priority = String(value || '').toLowerCase();
-  if (priority.includes('urgente') || priority.includes('alta')) return 'priority-pill--alta';
-  if (priority.includes('revisar') || priority.includes('media')) return 'priority-pill--media';
-  if (priority.includes('seguimiento') || priority.includes('baja')) return 'priority-pill--baja';
-  return 'priority-pill--neutral';
+  const level = getSemaphoreLevelFromPriority(value);
+  if (level === 1) return 'priority-pill--urgente';
+  if (level === 2) return 'priority-pill--revisar';
+  return 'priority-pill--seguimiento';
 }
 
 function getSimpleSectionLabel(estado) {
@@ -23,7 +22,7 @@ function getSimpleSectionLabel(estado) {
 }
 
 function getPriorityValue(item) {
-  return item.prioridad_simple || item.prioridad_revision || '';
+  return item.prioridad_simple || item.prioridad_revision || item.prioridad || '';
 }
 
 function getReasonFromApi(item) {
@@ -50,11 +49,92 @@ function formatRecentSalesMetric(item) {
   return `<span><b>Últimos 15 días</b> vendió ${formatNumber(units15)} und.</span>`;
 }
 
+function getSemaphoreLevelFromPriority(value) {
+  const priority = String(value || '').toLowerCase();
+  if (priority.includes('urgente') || priority.includes('alta')) return 1;
+  if (priority.includes('revisar') || priority.includes('media')) return 2;
+  if (priority.includes('seguimiento') || priority.includes('baja')) return 3;
+  return 3;
+}
+
+function getCriterionLevel(item) {
+  const priorityValue = getPriorityValue(item);
+  const priorityLevel = getSemaphoreLevelFromPriority(priorityValue);
+  if (priorityLevel) return priorityLevel;
+
+  const text = String([
+    item.criterio_orden,
+    item.criterio,
+    item.criterio_critico,
+    item.tipo_alerta,
+    item.motivo_simple,
+    item.motivo
+  ].filter(Boolean).join(' ')).toLowerCase();
+
+  if (/criterio\s*1|nivel\s*1|^\s*1[\.)-]/.test(text)) return 1;
+  if (/criterio\s*2|nivel\s*2|^\s*2[\.)-]/.test(text)) return 2;
+  if (/sin venta|no ha vendido|no vendió|no vendio|urgente|crítico|critico/.test(text)) return 1;
+  if (/mucho inventario|venta lenta|rotación|rotacion|revisar/.test(text)) return 2;
+  return 3;
+}
+
+function getSemaphoreName(item) {
+  const level = getCriterionLevel(item);
+  if (level === 1) return 'urgente';
+  if (level === 2) return 'revisar';
+  return 'seguimiento';
+}
+
+function countCriteriaBySection(row) {
+  const counts = { c1: 0, c2: 0, c3: 0 };
+  const refs = Array.isArray(row && row.productosCriticos) ? row.productosCriticos : [];
+
+  refs.forEach(item => {
+    const level = getCriterionLevel(item);
+    if (level === 1) counts.c1 += 1;
+    else if (level === 2) counts.c2 += 1;
+    else counts.c3 += 1;
+  });
+
+  return counts;
+}
+
+function sortReferencesByCriterion(items) {
+  return [...(items || [])].sort((a, b) => {
+    return getCriterionLevel(a) - getCriterionLevel(b) ||
+      toNumber(b.inventario_unidades) - toNumber(a.inventario_unidades) ||
+      String(a.referencia || '').localeCompare(String(b.referencia || ''), 'es');
+  });
+}
+
+function sortSectionsByCriterion(rows) {
+  return [...(rows || [])].sort((a, b) => {
+    const ca = countCriteriaBySection(a);
+    const cb = countCriteriaBySection(b);
+
+    return cb.c1 - ca.c1 ||
+      cb.c2 - ca.c2 ||
+      cb.c3 - ca.c3 ||
+      toNumber(b.alertas) - toNumber(a.alertas) ||
+      toNumber(b.porcentajeAlertas) - toNumber(a.porcentajeAlertas) ||
+      String(`${a.mundo || ''} ${a.seccion || ''}`).localeCompare(String(`${b.mundo || ''} ${b.seccion || ''}`), 'es');
+  });
+}
+
+if (typeof renderMundoSeccionCalculated === 'function') {
+  const originalRenderMundoSeccionCalculated = renderMundoSeccionCalculated;
+  renderMundoSeccionCalculated = function (rows) {
+    const sortedRows = sortSectionsByCriterion(rows || []);
+    return originalRenderMundoSeccionCalculated(sortedRows);
+  };
+}
+
 renderSectionRow = function (row, index) {
   const isOpen = openSectionKey === row.key;
   const statusClass = getEstadoGrupoClass(row.estadoGrupo);
   const accentClass = getSectionAccentClass(row.estadoGrupo, index);
-  const statusLabel = getSimpleSectionLabel(row.estadoGrupo);
+  const counts = countCriteriaBySection(row);
+  const statusLabel = counts.c1 > 0 ? 'Urgente' : counts.c2 > 0 ? 'Revisar' : getSimpleSectionLabel(row.estadoGrupo);
 
   return `
     <article class="category-card ${isOpen ? 'open' : ''} ${accentClass}">
@@ -79,7 +159,7 @@ renderSectionRow = function (row, index) {
 };
 
 renderSectionReferences = function (items) {
-  const filteredItems = items || [];
+  const filteredItems = sortReferencesByCriterion(items || []);
   if (!filteredItems.length) {
     return renderEmptyState('Sin referencias para revisar', 'No hay referencias que cumplan los criterios definidos.');
   }
@@ -88,18 +168,19 @@ renderSectionReferences = function (items) {
     <div class="reference-detail-head">
       <div>
         <strong>Referencias para revisar</strong>
-        <span>Gestiona estas prendas en piso según el motivo y el plan de acción.</span>
+        <span>Semáforo: rojo urgente · amarillo revisar · verde seguimiento.</span>
       </div>
     </div>
     <div class="compact-ref-list">
       ${filteredItems.map(item => {
         const priorityValue = getPriorityValue(item);
-        const priorityClass = getStorePriorityClass(priorityValue);
-        const priorityLabel = getStorePriorityLabel(priorityValue);
+        const semaforo = getSemaphoreName(item);
+        const priorityClass = `priority-pill--${semaforo}`;
+        const priorityLabel = semaforo === 'urgente' ? 'Urgente' : semaforo === 'revisar' ? 'Revisar' : 'Seguimiento';
         const reason = getReasonFromApi(item);
         const action = getActionFromApi(item);
         return `
-          <div class="compact-ref-row">
+          <div class="compact-ref-row compact-ref-row--${semaforo}">
             <div class="compact-ref-main">
               <strong>${escapeHtml(item.referencia)}</strong>
               <span>${escapeHtml(item.descripcion)}</span>
