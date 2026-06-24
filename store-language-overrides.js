@@ -50,6 +50,130 @@ function formatRecentSalesMetric(item) {
   return `<span><b>Últimos 15 días</b> vendió ${formatNumber(units15)} und.</span>`;
 }
 
+function injectActionFocusStyles() {
+  if (document.getElementById('actionFocusStyles')) return;
+
+  const style = document.createElement('style');
+  style.id = 'actionFocusStyles';
+  style.textContent = `
+    .action-focus-card {
+      margin: 0 0 14px;
+      padding: 16px;
+      border-radius: 26px;
+      background: linear-gradient(135deg, rgba(15,23,42,.96), rgba(30,41,59,.92));
+      color: #ffffff;
+      box-shadow: 0 18px 46px rgba(15,23,42,.18);
+      border: 1px solid rgba(255,255,255,.14);
+    }
+    .action-focus-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    .action-focus-kicker {
+      display: block;
+      margin-bottom: 3px;
+      color: rgba(255,255,255,.62);
+      font-size: .72rem;
+      font-weight: 950;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+    }
+    .action-focus-head h3 {
+      margin: 0;
+      color: #ffffff;
+      font-size: clamp(1.25rem, 5.5vw, 1.85rem);
+      font-weight: 1000;
+      letter-spacing: -.05em;
+      line-height: .98;
+    }
+    .action-focus-count {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 38px;
+      height: 38px;
+      padding: 0 10px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.14);
+      color: #ffffff;
+      font-weight: 1000;
+    }
+    .action-focus-list {
+      display: grid;
+      gap: 10px;
+    }
+    .action-focus-item {
+      display: grid;
+      grid-template-columns: 34px 1fr;
+      gap: 10px;
+      padding: 12px;
+      border-radius: 18px;
+      background: rgba(255,255,255,.09);
+      border: 1px solid rgba(255,255,255,.10);
+    }
+    .action-focus-rank {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 32px;
+      height: 32px;
+      border-radius: 999px;
+      background: #f97316;
+      color: #ffffff;
+      font-weight: 1000;
+      font-size: .86rem;
+    }
+    .action-focus-content {
+      min-width: 0;
+      display: grid;
+      gap: 4px;
+    }
+    .action-focus-title-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .action-focus-title-row strong {
+      color: #ffffff;
+      font-size: .98rem;
+      font-weight: 1000;
+      letter-spacing: -.02em;
+    }
+    .action-focus-desc,
+    .action-focus-zone {
+      display: block;
+      color: rgba(255,255,255,.70);
+      font-size: .77rem;
+      font-weight: 760;
+      line-height: 1.15;
+    }
+    .action-focus-zone {
+      color: #bfdbfe;
+    }
+    .action-focus-content p {
+      margin: 3px 0 0;
+      color: rgba(255,255,255,.86);
+      font-size: .8rem;
+      font-weight: 720;
+      line-height: 1.22;
+    }
+    .action-focus-content p b {
+      color: #ffffff;
+      font-weight: 950;
+    }
+    @media (max-width: 560px) {
+      .action-focus-card { padding: 14px; border-radius: 24px; }
+      .action-focus-item { grid-template-columns: 30px 1fr; padding: 10px; }
+      .action-focus-rank { width: 28px; height: 28px; font-size: .8rem; }
+    }
+  `;
+  document.head.appendChild(style);
+}
+
 function getTopActionReferences(rows, limit) {
   const result = [];
   const maxItems = limit || 3;
@@ -71,6 +195,7 @@ function getTopActionReferences(rows, limit) {
 }
 
 function renderActionFocus(rows) {
+  injectActionFocusStyles();
   const topItems = getTopActionReferences(rows, 3);
 
   if (!topItems.length) return '';
