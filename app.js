@@ -1,15 +1,12 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbwCfspSz1mtp2mrNrqm9fezzLArIMv7Wzxbg3vqYMxZ4xvUbrLtc0F6JUnyAB5eFucO/exec';
 
-let dashboardData = [];
 let storeDashboards = {};
 let storesList = [];
 let generalSummary = null;
+let rankingCumplimientoTiendas = [];
+let rankingAlertasTiendas = [];
 let currentStoreName = '';
 let openSectionKey = null;
-let usesOptimizedApi = true;
-
-const CRITICAL_STATES = ['Sin venta', 'Crítico', 'Lento'];
-const PRIORITY_INVENTORY_MIN = 15;
 
 const storeSelect = document.getElementById('storeSelect');
 const loadingOverlay = document.getElementById('loadingOverlay');
@@ -30,111 +27,39 @@ async function initDashboard() {
 
   try {
     showLoading(true);
-
     await loadInitialData();
 
-    storeSelect.addEventListener('change', async () => {
-      await handleStoreChange(storeSelect.value);
-    });
+    if (storeSelect) {
+      storeSelect.addEventListener('change', async () => {
+        await handleStoreChange(storeSelect.value);
+      });
+    }
 
     renderGeneralDashboard();
   } catch (error) {
     console.error('Error cargando dashboard:', error);
     renderErrorState();
-    showToast('No se pudo cargar la información. Intenta actualizar nuevamente.');
+    showToast('No se pudo cargar la información. Actualiza Apps Script y vuelve a intentar.');
   } finally {
     showLoading(false);
   }
 }
 
 async function loadInitialData() {
-  try {
-    const [generalJson, tiendasJson] = await Promise.all([
-      fetchJson(buildApiUrl({ modo: 'general' })),
-      fetchJson(buildApiUrl({ modo: 'tiendas' }))
-    ]);
+  const json = await fetchJson(buildApiUrl({ modo: 'inicio' }));
 
-    if (!generalJson.ok || !generalJson.resumen_general) {
-      throw new Error(generalJson.error || 'La API general no devolvió resumen.');
-    }
-
-    if (!tiendasJson.ok || !Array.isArray(tiendasJson.tiendas)) {
-      throw new Error(tiendasJson.error || 'La API optimizada no devolvió tiendas.');
-    }
-
-    usesOptimizedApi = true;
-    dashboardData = [];
-    storeDashboards = {};
-    storesList = tiendasJson.tiendas || [];
-    generalSummary = normalizeSummary(generalJson.resumen_general);
-
-    setText('ultimaActualizacion', formatDate(generalJson.ultima_actualizacion || tiendasJson.ultima_actualizacion) || 'Sin dato');
-    loadStoreSelector(storesList);
-  } catch (error) {
-    console.warn('No fue posible usar la API optimizada. Se usa respaldo compatible.', error);
-    await loadRawDataFallback();
-  }
-}
-
-async function loadRawDataFallback() {
-  const json = await fetchJson(API_URL);
-
-  if (!json.ok) {
-    throw new Error(json.error || 'Error al cargar datos');
+  if (!json.ok || !json.resumen_general || !Array.isArray(json.tiendas)) {
+    throw new Error(json.error || 'La API de inicio no devolvió la estructura esperada.');
   }
 
-  usesOptimizedApi = false;
   storeDashboards = {};
-  dashboardData = json.data || [];
-  storesList = [];
-  generalSummary = buildGeneralSummaryFromRawData(dashboardData);
+  storesList = json.tiendas || [];
+  generalSummary = normalizeSummary(json.resumen_general || {});
+  rankingCumplimientoTiendas = normalizeRankingCumplimiento(json.ranking_cumplimiento || []);
+  rankingAlertasTiendas = normalizeRankingAlertas(json.ranking_alertas || []);
 
   setText('ultimaActualizacion', formatDate(json.ultima_actualizacion) || 'Sin dato');
-  loadStoreSelector(dashboardData);
-}
-
-function buildGeneralSummaryFromRawData(data) {
-  const stores = [...new Set((data || []).map(item => item.nombre_almacen))].filter(Boolean);
-  const byStore = {};
-
-  data.forEach(item => {
-    const store = item.nombre_almacen;
-    if (!store) return;
-    if (!byStore[store]) byStore[store] = [];
-    byStore[store].push(item);
-  });
-
-  let ventaTotal = 0;
-  let metaTotal = 0;
-  let inventarioTotal = 0;
-  let alertasTotal = 0;
-  let sinVenta = 0;
-  let criticos = 0;
-  let lentos = 0;
-
-  Object.values(byStore).forEach(storeData => {
-    ventaTotal += getFirstNumber(storeData, 'venta_pesos_mes') || 0;
-    metaTotal += getFirstNumber(storeData, 'meta_venta_pesos') || 0;
-    inventarioTotal += sum(storeData, 'inventario_unidades');
-
-    const alertasVisibles = storeData.filter(isVisibleCriticalReference);
-    alertasTotal += alertasVisibles.length;
-    sinVenta += alertasVisibles.filter(item => item.estado_referencia === 'Sin venta').length;
-    criticos += alertasVisibles.filter(item => item.estado_referencia === 'Crítico').length;
-    lentos += alertasVisibles.filter(item => item.estado_referencia === 'Lento').length;
-  });
-
-  return {
-    total_tiendas: stores.length,
-    cumplimiento_meta: metaTotal > 0 ? ventaTotal / metaTotal : 0,
-    venta_pesos_mes: ventaTotal,
-    meta_venta_pesos: metaTotal,
-    inventario_total: inventarioTotal,
-    alertas_total: alertasTotal,
-    sin_venta: sinVenta,
-    criticos,
-    lentos
-  };
+  loadStoreSelector(storesList);
 }
 
 async function handleStoreChange(storeName) {
@@ -149,11 +74,8 @@ async function handleStoreChange(storeName) {
   updateActiveStoreUI(currentStoreName, false);
 
   try {
-    if (usesOptimizedApi) {
-      showLoading(true);
-      await loadStoreDashboard(currentStoreName);
-    }
-
+    showLoading(true);
+    await loadStoreDashboard(currentStoreName);
     renderDashboard(currentStoreName);
   } catch (error) {
     console.error('Error cargando tienda:', error);
@@ -165,14 +87,12 @@ async function handleStoreChange(storeName) {
 }
 
 async function loadStoreDashboard(storeName, forceRefresh = false) {
-  if (!forceRefresh && storeDashboards[storeName]) {
-    return storeDashboards[storeName];
-  }
+  if (!forceRefresh && storeDashboards[storeName]) return storeDashboards[storeName];
 
   const json = await fetchJson(buildApiUrl({ modo: 'tienda', nombre: storeName }));
 
   if (!json.ok) {
-    throw new Error(json.error || 'Error al cargar tienda optimizada');
+    throw new Error(json.error || 'Error al cargar tienda.');
   }
 
   const dashboard = normalizeOptimizedDashboard(json);
@@ -189,14 +109,43 @@ function normalizeSummary(resumen) {
   return {
     total_tiendas: toNumber(resumen.total_tiendas),
     cumplimiento_meta: toNumber(resumen.cumplimiento_meta),
+    avance_esperado_mes: toNumber(resumen.avance_esperado_mes),
     venta_pesos_mes: toNumber(resumen.venta_pesos_mes),
     meta_venta_pesos: toNumber(resumen.meta_venta_pesos),
     inventario_total: toNumber(resumen.inventario_total),
     alertas_total: toNumber(resumen.alertas_total),
     sin_venta: toNumber(resumen.sin_venta),
     criticos: toNumber(resumen.criticos),
-    lentos: toNumber(resumen.lentos)
+    lentos: toNumber(resumen.lentos),
+    fecha_corte_datos: resumen.fecha_corte_datos || ''
   };
+}
+
+function normalizeRankingCumplimiento(rows) {
+  return (rows || []).map(row => {
+    const cumplimiento = toNumber(row.cumplimiento_meta);
+    const esperado = toNumber(row.avance_esperado_mes);
+    return {
+      posicion: toNumber(row.posicion),
+      tienda: row.nombre_almacen || row.tienda || '',
+      cumplimiento,
+      esperado,
+      estado: row.estado || (esperado > 0 ? (cumplimiento >= esperado ? 'Bien' : 'Abajo') : (cumplimiento >= 1 ? 'Bien' : 'Abajo')),
+      ventaMes: toNumber(row.venta_pesos_mes),
+      metaMes: toNumber(row.meta_venta_pesos)
+    };
+  }).filter(row => row.tienda).sort((a, b) => a.posicion - b.posicion);
+}
+
+function normalizeRankingAlertas(rows) {
+  return (rows || []).map(row => ({
+    posicion: toNumber(row.posicion),
+    tienda: row.nombre_almacen || row.tienda || '',
+    alertas: toNumber(row.alertas_total),
+    sinVenta: toNumber(row.sin_venta),
+    criticos: toNumber(row.criticos),
+    lentos: toNumber(row.lentos)
+  })).filter(row => row.tienda).sort((a, b) => a.posicion - b.posicion);
 }
 
 function normalizeOptimizedDashboard(json) {
@@ -243,25 +192,14 @@ function bindRefreshButton() {
     try {
       showToast('Actualizando información...');
       showLoading(true);
+      await loadInitialData();
 
-      if (usesOptimizedApi) {
-        await loadInitialData();
-
-        if (currentStoreName) {
-          await loadStoreDashboard(currentStoreName, true);
-          updateActiveStoreUI(currentStoreName, false);
-          renderDashboard(currentStoreName);
-        } else {
-          renderGeneralDashboard();
-        }
+      if (currentStoreName) {
+        await loadStoreDashboard(currentStoreName, true);
+        updateActiveStoreUI(currentStoreName, false);
+        renderDashboard(currentStoreName);
       } else {
-        await loadRawDataFallback();
-
-        if (currentStoreName) {
-          renderDashboard(currentStoreName);
-        } else {
-          renderGeneralDashboard();
-        }
+        renderGeneralDashboard();
       }
 
       showToast('Información actualizada.');
@@ -277,7 +215,6 @@ function bindRefreshButton() {
 
 function bindChangeStoreButton() {
   if (!changeStoreButton || !selectorCard) return;
-
   changeStoreButton.addEventListener('click', showStoreSelector);
 }
 
@@ -286,31 +223,25 @@ function showStoreSelector() {
   selectorCard.classList.remove('selector-card--hidden');
   selectorCard.classList.add('selector-card--visible');
   selectorCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  setTimeout(() => storeSelect.focus({ preventScroll: true }), 250);
+  setTimeout(() => storeSelect && storeSelect.focus({ preventScroll: true }), 250);
 }
 
 function updateActiveStoreUI(storeName, showSelector = false) {
   const label = storeName || 'Vista general / Todas las tiendas';
   if (headerStoreName) headerStoreName.textContent = label;
   if (storeBarName) storeBarName.textContent = storeName || 'Todas las tiendas';
-
-  if (storeBar) {
-    storeBar.classList.toggle('hidden', !storeName);
-  }
-
+  if (storeBar) storeBar.classList.toggle('hidden', !storeName);
   if (selectorCard) {
     selectorCard.classList.toggle('selector-card--hidden', !showSelector);
     selectorCard.classList.toggle('selector-card--visible', showSelector);
   }
 }
 
-function loadStoreSelector(data) {
-  const stores = Array.isArray(data) && typeof data[0] === 'string'
-    ? data.filter(Boolean).sort()
-    : [...new Set((data || []).map(item => item.nombre_almacen))].filter(Boolean).sort();
-
+function loadStoreSelector(stores) {
+  if (!storeSelect) return;
+  const sortedStores = (stores || []).filter(Boolean).sort();
   storeSelect.innerHTML = '<option value="">Selecciona una tienda</option>';
-  stores.forEach(store => {
+  sortedStores.forEach(store => {
     const option = document.createElement('option');
     option.value = store;
     option.textContent = store;
@@ -322,7 +253,6 @@ function renderGeneralDashboard() {
   currentStoreName = '';
   openSectionKey = null;
   if (storeSelect) storeSelect.value = '';
-
   updateActiveStoreUI('', false);
   renderSummaryCalculated(generalSummary || {});
 
@@ -330,7 +260,6 @@ function renderGeneralDashboard() {
   if (!container) return;
 
   const totalTiendas = toNumber(generalSummary && generalSummary.total_tiendas);
-
   container.innerHTML = `
     <div class="empty-state general-action-card" role="status">
       <p class="empty-state__title">Vista general de tiendas</p>
@@ -338,34 +267,24 @@ function renderGeneralDashboard() {
         Estás viendo el cumplimiento consolidado${totalTiendas ? ` de ${formatNumber(totalTiendas)} tiendas` : ''}.
         Selecciona una tienda para revisar zonas, secciones y referencias críticas.
       </p>
-      <button class="store-bar__change general-select-button" type="button" onclick="showStoreSelector()">
-        Seleccionar una tienda
-      </button>
+      <button class="store-bar__change general-select-button" type="button" onclick="showStoreSelector()">Seleccionar una tienda</button>
     </div>
   `;
 }
 
 function renderDashboard(storeName) {
-  if (usesOptimizedApi) {
-    const dashboard = storeDashboards[storeName];
-
-    if (!storeName || !dashboard) {
-      renderGeneralDashboard();
-      return;
-    }
-
-    renderSummaryCalculated(dashboard.resumen);
-    renderMundoSeccionCalculated(dashboard.zonas);
+  const dashboard = storeDashboards[storeName];
+  if (!storeName || !dashboard) {
+    renderGeneralDashboard();
     return;
   }
-
-  const storeData = dashboardData.filter(item => item.nombre_almacen === storeName);
-  renderSummary(storeData);
-  renderMundoSeccion(storeData);
+  renderSummaryCalculated(dashboard.resumen);
+  renderMundoSeccionCalculated(dashboard.zonas);
 }
 
 function renderSummaryCalculated(resumen) {
   const cumplimiento = toNumberOrNull(resumen.cumplimiento_meta);
+  const avanceEsperadoMes = toNumberOrNull(resumen.avance_esperado_mes);
   const ventaMes = toNumber(resumen.venta_pesos_mes);
   const metaMes = toNumber(resumen.meta_venta_pesos);
   const inventarioTotal = toNumber(resumen.inventario_total);
@@ -374,78 +293,14 @@ function renderSummaryCalculated(resumen) {
   const criticos = toNumber(resumen.criticos);
   const lentos = toNumber(resumen.lentos);
 
-  pintarSummary({
-    cumplimiento,
-    ventaMes,
-    metaMes,
-    inventarioTotal,
-    alertasPrincipales,
-    sinVenta,
-    criticos,
-    lentos
-  });
+  pintarSummary({ cumplimiento, avanceEsperadoMes, ventaMes, metaMes, inventarioTotal, alertasPrincipales, sinVenta, criticos, lentos });
 }
 
-function renderMundoSeccionCalculated(rows) {
-  const container = document.getElementById('mundoSeccionContainer');
-  if (!container) return;
-
-  if (!currentStoreName) {
-    renderGeneralDashboard();
-    return;
-  }
-
-  if (!rows.length) {
-    openSectionKey = null;
-    container.innerHTML = renderEmptyState('Sin zonas críticas', 'Esta tienda no tiene alertas mayores a 15 unidades para revisar en este momento.');
-    return;
-  }
-
-  const note = `
-    <div class="info-note">
-      <strong>Solo se muestran alertas relevantes.</strong>
-      <span>Referencias en estado Sin venta, Crítico o Lento con más de ${PRIORITY_INVENTORY_MIN} unidades en inventario.</span>
-    </div>
-  `;
-
-  container.innerHTML = rows.map((row, index) => renderSectionRow(row, index)).join('') + note;
-}
-
-function isVisibleCriticalReference(item) {
-  return CRITICAL_STATES.includes(item.estado_referencia) &&
-    toNumber(item.inventario_unidades) > PRIORITY_INVENTORY_MIN;
-}
-
-function renderSummary(data) {
-  const cumplimiento = getFirstNumber(data, 'cumplimiento_meta');
-  const ventaMes = getFirstNumber(data, 'venta_pesos_mes');
-  const metaMes = getFirstNumber(data, 'meta_venta_pesos');
-  const inventarioTotal = sum(data, 'inventario_unidades');
-
-  const alertasVisibles = data.filter(isVisibleCriticalReference);
-  const alertasPrincipales = alertasVisibles.length;
-  const sinVenta = alertasVisibles.filter(item => item.estado_referencia === 'Sin venta').length;
-  const criticos = alertasVisibles.filter(item => item.estado_referencia === 'Crítico').length;
-  const lentos = alertasVisibles.filter(item => item.estado_referencia === 'Lento').length;
-
-  pintarSummary({
-    cumplimiento,
-    ventaMes,
-    metaMes,
-    inventarioTotal,
-    alertasPrincipales,
-    sinVenta,
-    criticos,
-    lentos
-  });
-}
-
-function pintarSummary({ cumplimiento, ventaMes, metaMes, inventarioTotal, alertasPrincipales, sinVenta, criticos, lentos }) {
+function pintarSummary({ cumplimiento, avanceEsperadoMes, ventaMes, metaMes, inventarioTotal, alertasPrincipales, sinVenta, criticos, lentos }) {
   const cumplimientoValue = cumplimiento === null ? 0 : cumplimiento;
   const cumplimientoPct = Math.max(0, Math.min(cumplimientoValue * 100, 100));
-
   setText('cumplimientoMeta', cumplimiento === null ? '-' : formatPercent(cumplimiento));
-  setText('ventaMetaTexto', `${formatCurrency(ventaMes)} / ${formatCurrency(metaMes)}`);
+  setText('ventaMetaTexto', avanceEsperadoMes ? `Debería ir: ${formatPercent(avanceEsperadoMes)}` : '-');
   setText('inventarioTotal', formatNumber(inventarioTotal));
   setText('referenciasCriticas', formatNumber(alertasPrincipales));
   setText('alertasTexto', alertasPrincipales === 0 ? 'Sin alertas activas' : 'Productos que necesitan atención');
@@ -453,16 +308,9 @@ function pintarSummary({ cumplimiento, ventaMes, metaMes, inventarioTotal, alert
   const metaCard = document.getElementById('kpiMetaCard');
   const inventarioCard = document.getElementById('kpiInventarioCard');
   const alertasCard = document.getElementById('kpiAlertasCard');
-
-  if (metaCard) {
-    metaCard.className = `summary-card ${cumplimientoValue >= 1 ? 'summary-card--success' : cumplimientoValue >= 0.75 ? 'summary-card--info' : 'summary-card--warning'}`;
-  }
-
+  if (metaCard) metaCard.className = `summary-card ${cumplimientoValue >= 1 ? 'summary-card--success' : cumplimientoValue >= 0.75 ? 'summary-card--info' : 'summary-card--warning'}`;
   if (inventarioCard) inventarioCard.className = 'summary-card summary-card--info';
-
-  if (alertasCard) {
-    alertasCard.className = `summary-card ${alertasPrincipales === 0 ? 'summary-card--success' : criticos > 0 || sinVenta > 0 ? 'summary-card--danger' : 'summary-card--warning'}`;
-  }
+  if (alertasCard) alertasCard.className = `summary-card ${alertasPrincipales === 0 ? 'summary-card--success' : criticos > 0 || sinVenta > 0 ? 'summary-card--danger' : 'summary-card--warning'}`;
 
   const cumplimientoBar = document.getElementById('cumplimientoMetaBar');
   const inventarioBar = document.getElementById('inventarioBar');
@@ -479,118 +327,51 @@ function pintarSummary({ cumplimiento, ventaMes, metaMes, inventarioTotal, alert
   }
 }
 
-function renderMundoSeccion(data) {
+function renderMundoSeccionCalculated(rows) {
   const container = document.getElementById('mundoSeccionContainer');
   if (!container) return;
-
-  if (!data.length) {
+  if (!currentStoreName) {
     renderGeneralDashboard();
     return;
   }
-
-  const grouped = {};
-  data.forEach(item => {
-    const key = `${item.mundo || 'SIN MUNDO'}|${item.seccion || 'SIN SECCIÓN'}`;
-    if (!grouped[key]) {
-      grouped[key] = {
-        key,
-        mundo: item.mundo || 'SIN MUNDO',
-        seccion: item.seccion || 'SIN SECCIÓN',
-        inventario: 0,
-        ventaUnidades: 0,
-        totalReferencias: 0,
-        alertas: 0,
-        productosCriticos: []
-      };
-    }
-
-    grouped[key].inventario += toNumber(item.inventario_unidades);
-    grouped[key].ventaUnidades += toNumber(item.venta_unidades);
-    grouped[key].totalReferencias += 1;
-
-    if (isVisibleCriticalReference(item)) {
-      grouped[key].alertas += 1;
-      grouped[key].productosCriticos.push(item);
-    }
-  });
-
-  const rows = Object.values(grouped)
-    .map(group => {
-      const porcentajeAlertas = group.totalReferencias === 0 ? 0 : group.alertas / group.totalReferencias;
-      return {
-        ...group,
-        porcentajeAlertas,
-        estadoGrupo: getEstadoGrupo(porcentajeAlertas),
-        productosCriticos: group.productosCriticos.sort(compareCriticalReferences)
-      };
-    })
-    .filter(row => row.alertas > 0)
-    .sort(compareSections);
-
-  renderMundoSeccionCalculated(rows);
+  if (!rows.length) {
+    openSectionKey = null;
+    container.innerHTML = renderEmptyState('Sin zonas críticas', 'Esta tienda no tiene referencias que cumplan los criterios definidos para revisión.');
+    return;
+  }
+  const note = `
+    <div class="info-note">
+      <strong>Solo se muestran productos que necesitan gestión.</strong>
+      <span>Se priorizan referencias con inventario y poca o ninguna venta reciente.</span>
+    </div>
+  `;
+  container.innerHTML = rows.map((row, index) => renderSectionRow(row, index)).join('') + note;
 }
 
 function renderSectionRow(row, index) {
   const isOpen = openSectionKey === row.key;
   const statusClass = getEstadoGrupoClass(row.estadoGrupo);
   const accentClass = getSectionAccentClass(row.estadoGrupo, index);
-
   return `
     <article class="category-card ${isOpen ? 'open' : ''} ${accentClass}">
       <button class="category-card-header" type="button" onclick="toggleSection('${escapeAttribute(row.key)}')" aria-expanded="${isOpen}">
         <div class="rank-badge">${index + 1}</div>
-        <div class="category-main">
-          <strong>${escapeHtml(row.mundo)} / ${escapeHtml(row.seccion)}</strong>
-          <span>${formatNumber(row.totalReferencias)} referencias totales</span>
-        </div>
-        <div class="category-metric"><span>Inv.</span><strong>${formatNumber(row.inventario)}</strong></div>
-        <div class="category-metric"><span>Venta</span><strong>${formatNumber(row.ventaUnidades)}</strong></div>
-        <div class="category-metric alert-metric"><span>Alertas</span><strong>${formatNumber(row.alertas)}</strong></div>
-        <div class="category-metric percent-metric"><span>% alertas</span><strong>${formatPercent(row.porcentajeAlertas)}</strong></div>
+        <div class="category-main"><strong>${escapeHtml(row.mundo)} / ${escapeHtml(row.seccion)}</strong><span>${formatNumber(row.totalReferencias)} referencias totales</span></div>
+        <div class="category-metric"><span>Hay</span><strong>${formatNumber(row.inventario)}</strong></div>
+        <div class="category-metric"><span>Vendió</span><strong>${formatNumber(row.ventaUnidades)}</strong></div>
+        <div class="category-metric alert-metric"><span>Revisar</span><strong>${formatNumber(row.alertas)}</strong></div>
+        <div class="category-metric percent-metric"><span>% revisar</span><strong>${formatPercent(row.porcentajeAlertas)}</strong></div>
         <span class="status-pill ${statusClass}">${row.estadoGrupo}</span>
         <span class="expand-indicator">${isOpen ? '⌃' : '⌄'}</span>
       </button>
-      <div class="section-references ${isOpen ? '' : 'hidden'}">
-        ${isOpen ? renderSectionReferences(row.productosCriticos) : ''}
-      </div>
+      <div class="section-references ${isOpen ? '' : 'hidden'}">${isOpen ? renderSectionReferences(row.productosCriticos) : ''}</div>
     </article>
   `;
 }
 
 function renderSectionReferences(items) {
-  if (!items.length) return renderEmptyState('Sin productos', 'No hay productos críticos en esta sección.');
-
-  return `
-    <div class="compact-table-wrap">
-      <table class="compact-reference-table">
-        <thead>
-          <tr>
-            <th>Referencia</th>
-            <th>Estado</th>
-            <th>Inventario</th>
-            <th>Cobertura</th>
-            <th>Últ. despacho</th>
-            <th>Acción sugerida</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${items.map(item => {
-            const colorClass = getColorClass(item.color_estado);
-            return `
-              <tr>
-                <td class="ref-main"><strong>${escapeHtml(item.referencia)}</strong><span>${escapeHtml(item.descripcion)}</span></td>
-                <td class="ref-status"><span class="dot-status ${colorClass}"></span>${escapeHtml(item.estado_referencia)}</td>
-                <td>${formatNumber(item.inventario_unidades)}</td>
-                <td>${formatCoverage(item.cobertura_dias)}</td>
-                <td>${formatDate(item.ultimo_despacho)}</td>
-                <td class="action-cell">${escapeHtml(item.accion_sugerida)}</td>
-              </tr>
-            `;
-          }).join('')}
-        </tbody>
-      </table>
-    </div>
-  `;
+  if (!items.length) return renderEmptyState('Sin referencias para revisar', 'No hay referencias que cumplan los criterios definidos.');
+  return '';
 }
 
 function toggleSection(sectionKey) {
@@ -600,44 +381,11 @@ function toggleSection(sectionKey) {
 
 function renderErrorState() {
   const container = document.getElementById('mundoSeccionContainer');
-  if (container) {
-    container.innerHTML = renderEmptyState('No fue posible cargar la información', 'Revisa la conexión o intenta actualizar de nuevo.');
-  }
+  if (container) container.innerHTML = renderEmptyState('No fue posible cargar la información', 'Revisa la conexión o intenta actualizar de nuevo.');
 }
 
 function renderEmptyState(title, description) {
-  return `
-    <div class="empty-state" role="status">
-      <p class="empty-state__title">${escapeHtml(title)}</p>
-      <p class="empty-state__desc">${escapeHtml(description)}</p>
-    </div>
-  `;
-}
-
-function compareSections(a, b) {
-  const rank = { Prioritario: 1, Revisión: 2, Controlado: 3 };
-  const rankA = rank[a.estadoGrupo] || 99;
-  const rankB = rank[b.estadoGrupo] || 99;
-  if (rankA !== rankB) return rankA - rankB;
-  if (b.alertas !== a.alertas) return b.alertas - a.alertas;
-  if (b.porcentajeAlertas !== a.porcentajeAlertas) return b.porcentajeAlertas - a.porcentajeAlertas;
-  return b.inventario - a.inventario;
-}
-
-function compareCriticalReferences(a, b) {
-  const priority = { 'Sin venta': 1, Crítico: 2, Lento: 3 };
-  const priorityA = priority[a.estado_referencia] || 99;
-  const priorityB = priority[b.estado_referencia] || 99;
-  if (priorityA !== priorityB) return priorityA - priorityB;
-  const invDiff = toNumber(b.inventario_unidades) - toNumber(a.inventario_unidades);
-  if (invDiff !== 0) return invDiff;
-  return toNumber(b.cobertura_dias) - toNumber(a.cobertura_dias);
-}
-
-function getEstadoGrupo(porcentaje) {
-  if (porcentaje > 0.35) return 'Prioritario';
-  if (porcentaje > 0.15) return 'Revisión';
-  return 'Controlado';
+  return `<div class="empty-state" role="status"><p class="empty-state__title">${escapeHtml(title)}</p><p class="empty-state__desc">${escapeHtml(description)}</p></div>`;
 }
 
 function getEstadoGrupoClass(estado) {
@@ -653,104 +401,32 @@ function getSectionAccentClass(estado, index) {
   return 'accent-controlado';
 }
 
-function getColorClass(color) {
-  const normalized = String(color || '').toLowerCase();
-  if (normalized.includes('rojo')) return 'rojo';
-  if (normalized.includes('amarillo')) return 'amarillo';
-  if (normalized.includes('azul')) return 'azul';
-  if (normalized.includes('verde')) return 'verde';
-  return '';
-}
-
 function injectControlledStyles() {
   if (document.getElementById('controlledStyles')) return;
   const style = document.createElement('style');
   style.id = 'controlledStyles';
-  style.textContent = `.app-main{width:min(100%,980px);margin:0 auto;padding:16px;padding-bottom:calc(24px + env(safe-area-inset-bottom,0px))}.app-header__left,.app-header__right{display:flex;align-items:center}.app-header__left{gap:12px}.app-header__right{gap:8px}.app-header__icon{color:#1a56db}.app-header__title{display:block;font-size:13px;font-weight:700}.app-header__store{display:block;font-size:11px;opacity:.75}.app-header__refresh{width:44px;height:44px;border:0;border-radius:10px;background:transparent;color:inherit}.app-header__refresh.loading svg{animation:spin .8s linear infinite}.store-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:12px auto 0;width:calc(100% - 24px);max-width:980px;padding:10px 14px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:14px;color:#111827}.store-bar.hidden{display:none!important}.store-bar__info{min-width:0}.store-bar__label{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:#64748b;font-weight:800}.store-bar__info strong{display:block;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.store-bar__change{height:36px;padding:0 12px;border:0;border-radius:999px;background:#1a56db;color:#fff;font-size:12px;font-weight:700}.selector-card--hidden{display:none!important}.selector-card--visible{display:block!important;animation:selectorDrop .16s ease-out}.general-action-card{background:#fff;border:1px solid #e5e7eb;border-radius:16px;margin-top:12px;box-shadow:0 8px 24px rgba(15,23,42,.06)}.general-select-button{margin-top:16px;min-width:190px}@keyframes selectorDrop{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}.summary-card__header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}.summary-card__label{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:#6b7280}.summary-card__icon{width:28px;height:28px;display:grid;place-items:center;border-radius:6px;background:rgba(255,255,255,.7);color:#1a56db}.summary-card__icon--alert{color:#e02424}.summary-card--success{background:#f0fdf4!important;border-color:#a7f3d0!important}.summary-card--info{background:#eff6ff!important;border-color:#bfdbfe!important}.summary-card--warning{background:#fffbeb!important;border-color:#fde68a!important}.summary-card--danger{background:#fef2f2!important;border-color:#fecaca!important}.progress-track{height:4px;background:rgba(0,0,0,.08);border-radius:2px;overflow:hidden}.progress-fill{height:100%;width:0;background:#1a56db;transition:width .5s ease}.summary-card--success .progress-fill{background:#0e9f6e}.summary-card--warning .progress-fill{background:#d97706}.summary-card--danger .progress-fill{background:#e02424}.alert-breakdown{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}.alert-chip{font-size:11px;font-weight:700;padding:3px 8px;border-radius:999px}.alert-chip--critical{background:#fef2f2;color:#e02424;border:1px solid #fecaca}.alert-chip--sinventa{background:#fffbeb;color:#d97706;border:1px solid #fde68a}.alert-chip--lento{background:#f5f3ff;color:#7c3aed;border:1px solid #ddd6fe}.empty-state{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;min-height:190px;padding:24px 16px;color:#6b7280}.empty-state__title{margin:0 0 8px;font-size:15px;font-weight:800;color:#111827}.empty-state__desc{margin:0;font-size:13px}.app-toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%) translateY(20px);max-width:320px;width:calc(100% - 32px);padding:11px 14px;border-radius:12px;background:#0f172a;color:#fff;font-size:13px;text-align:center;box-shadow:0 8px 24px rgba(0,0,0,.22);opacity:0;pointer-events:none;transition:opacity .2s ease,transform .2s ease;z-index:999}.app-toast.visible{opacity:1;transform:translateX(-50%) translateY(0)}button,.category-card-header,.store-bar__change,.app-header__refresh{min-height:44px}@media(max-width:760px){.app-main{padding:12px;padding-bottom:calc(24px + env(safe-area-inset-bottom,0px))}.summary-grid{grid-template-columns:1fr!important}}`;
+  style.textContent = `
+    .app-main{width:min(100%,980px);margin:0 auto;padding:16px;padding-bottom:calc(24px + env(safe-area-inset-bottom));}
+    .selector-card--hidden{display:none;}
+    .selector-card--visible{display:block;}
+    .general-action-card{padding:28px 18px;}
+    .general-select-button{margin-top:14px;}
+    .info-note{margin-top:12px;padding:12px 14px;border-radius:16px;background:#f8fafc;border:1px solid #e2e8f0;color:#475569;font-size:.82rem;display:flex;flex-direction:column;gap:3px;}
+  `;
   document.head.appendChild(style);
+}
+
+function showLoading(show) {
+  if (!loadingOverlay) return;
+  loadingOverlay.classList.toggle('hidden', !show);
 }
 
 function showToast(message) {
   if (!appToast) return;
   appToast.textContent = message;
-  appToast.classList.add('visible');
-  clearTimeout(appToast._timer);
-  appToast._timer = setTimeout(() => appToast.classList.remove('visible'), 3200);
-}
-
-function getFirstNumber(data, field) {
-  for (const item of data) {
-    const value = toNumberOrNull(item[field]);
-    if (value !== null) return value;
-  }
-  return null;
-}
-
-function sum(data, field) {
-  return data.reduce((acc, item) => acc + toNumber(item[field]), 0);
-}
-
-function toNumber(value) {
-  const number = Number(value);
-  return Number.isFinite(number) ? number : 0;
-}
-
-function toNumberOrNull(value) {
-  if (value === null || value === undefined || value === '') return null;
-  const number = Number(value);
-  return Number.isFinite(number) ? number : null;
-}
-
-function formatNumber(value) {
-  return toNumber(value).toLocaleString('es-CO', { maximumFractionDigits: 0 });
-}
-
-function formatCurrency(value) {
-  return toNumber(value).toLocaleString('es-CO', {
-    style: 'currency',
-    currency: 'COP',
-    maximumFractionDigits: 0
-  });
-}
-
-function formatPercent(value) {
-  return toNumber(value).toLocaleString('es-CO', {
-    style: 'percent',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0
-  });
-}
-
-function formatDate(value) {
-  if (!value) return '-';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleDateString('es-CO');
-}
-
-function formatCoverage(value) {
-  if (typeof value === 'string') return escapeHtml(value);
-  const number = toNumber(value);
-  if (!number) return '-';
-  return `${number.toLocaleString('es-CO', { maximumFractionDigits: 0 })} días`;
-}
-
-function escapeHtml(value) {
-  return String(value ?? '')
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#039;');
-}
-
-function escapeAttribute(value) {
-  return String(value ?? '')
-    .replaceAll('&', '&amp;')
-    .replaceAll("'", '&#039;')
-    .replaceAll('"', '&quot;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;');
+  appToast.classList.add('show');
+  clearTimeout(showToast._timer);
+  showToast._timer = setTimeout(() => appToast.classList.remove('show'), 2600);
 }
 
 function setText(id, value) {
@@ -758,6 +434,49 @@ function setText(id, value) {
   if (element) element.textContent = value;
 }
 
-function showLoading(show) {
-  if (loadingOverlay) loadingOverlay.classList.toggle('hidden', !show);
+function toNumber(value) {
+  if (value === null || value === undefined || value === '') return 0;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+  const number = Number(String(value).replace('%', '').replace(',', '.').trim());
+  if (!Number.isFinite(number)) return 0;
+  return String(value).includes('%') && number > 1 ? number / 100 : number;
+}
+
+function toNumberOrNull(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const number = toNumber(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function formatNumber(value) {
+  return new Intl.NumberFormat('es-CO', { maximumFractionDigits: 0 }).format(toNumber(value));
+}
+
+function formatCurrency(value) {
+  return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(toNumber(value));
+}
+
+function formatPercent(value) {
+  return `${Math.round(toNumber(value) * 100)}%`;
+}
+
+function formatCoverage(value) {
+  const days = toNumber(value);
+  if (!days) return '-';
+  return `${formatNumber(days)} días`;
+}
+
+function formatDate(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return new Intl.DateTimeFormat('es-CO', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(date);
+}
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>'"]/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[char]));
+}
+
+function escapeAttribute(value) {
+  return escapeHtml(value).replace(/`/g, '&#96;');
 }
