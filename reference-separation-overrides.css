@@ -1,0 +1,75 @@
+/* =========================================================
+   Sprint 3.8 - Separacion visual de referencias desplegadas
+   Solo estilos. No agrega calculos ni consultas.
+   ========================================================= */
+
+.compact-ref-list {
+  display: grid !important;
+  gap: 10px !important;
+  background: #f8fafc !important;
+  padding: 10px 8px 12px !important;
+  border-top: 1px solid rgba(226, 232, 240, 0.95) !important;
+  border-radius: 0 0 18px 18px !important;
+}
+
+.compact-ref-row {
+  gap: 7px 10px !important;
+  padding: 12px 12px !important;
+  align-items: start !important;
+  background: #ffffff !important;
+  border: 1.5px solid rgba(203, 213, 225, 0.95) !important;
+  border-left: 5px solid #cbd5e1 !important;
+  border-radius: 16px !important;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.05) !important;
+}
+
+.compact-ref-row:last-child {
+  border-bottom: 1.5px solid rgba(203, 213, 225, 0.95) !important;
+}
+
+.compact-ref-row:nth-child(odd) {
+  background: #ffffff !important;
+}
+
+.compact-ref-row:nth-child(even) {
+  background: #fdfefe !important;
+}
+
+.compact-ref-row:hover {
+  border-color: #94a3b8 !important;
+  border-left-color: #64748b !important;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08) !important;
+}
+
+.compact-ref-main strong {
+  font-size: 13.5px !important;
+}
+
+.compact-ref-action,
+.compact-ref-criteria {
+  border-radius: 12px !important;
+}
+
+@media (max-width: 760px) {
+  .compact-ref-list {
+    gap: 9px !important;
+    padding: 9px 7px 11px !important;
+  }
+
+  .compact-ref-row {
+    padding: 11px 10px !important;
+    border-left-width: 4px !important;
+  }
+}
+
+@media (max-width: 430px) {
+  .compact-ref-list {
+    gap: 8px !important;
+    padding: 8px 6px 10px !important;
+  }
+
+  .compact-ref-row {
+    padding: 10px 9px !important;
+    border-radius: 15px !important;
+  }
+}
