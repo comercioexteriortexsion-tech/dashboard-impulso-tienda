@@ -140,6 +140,10 @@ function ensureSectionSemaphoreStyles() {
 
 function sortReferencesByCriterion(items) {
   return [...(items || [])].sort((a, b) => {
+    const ordenA = toNumber(a.orden);
+    const ordenB = toNumber(b.orden);
+    if (ordenA || ordenB) return (ordenA || 9999) - (ordenB || 9999);
+
     return getCriterionLevel(a) - getCriterionLevel(b) ||
       toNumber(b.inventario_unidades) - toNumber(a.inventario_unidades) ||
       String(a.referencia || '').localeCompare(String(b.referencia || ''), 'es');
