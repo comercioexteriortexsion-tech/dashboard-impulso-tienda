@@ -50,6 +50,96 @@ function formatRecentSalesMetric(item) {
   return `<span><b>Últimos 15 días</b> vendió ${formatNumber(units15)} und.</span>`;
 }
 
+function getTopActionReferences(rows, limit) {
+  const result = [];
+  const maxItems = limit || 3;
+
+  (rows || []).some(zona => {
+    const refs = Array.isArray(zona.productosCriticos) ? zona.productosCriticos : [];
+
+    return refs.some(ref => {
+      result.push({
+        zona: `${zona.mundo || 'SIN MUNDO'} / ${zona.seccion || 'SIN SECCIÓN'}`,
+        referencia: ref
+      });
+
+      return result.length >= maxItems;
+    });
+  });
+
+  return result;
+}
+
+function renderActionFocus(rows) {
+  const topItems = getTopActionReferences(rows, 3);
+
+  if (!topItems.length) return '';
+
+  return `
+    <section class="action-focus-card" aria-label="Qué revisar primero">
+      <div class="action-focus-head">
+        <div>
+          <span class="action-focus-kicker">Prioridad operativa</span>
+          <h3>Qué revisar primero</h3>
+        </div>
+        <span class="action-focus-count">${formatNumber(topItems.length)}</span>
+      </div>
+      <div class="action-focus-list">
+        ${topItems.map((item, index) => {
+          const ref = item.referencia || {};
+          const priorityValue = getPriorityValue(ref);
+          const priorityClass = getStorePriorityClass(priorityValue);
+          const priorityLabel = getStorePriorityLabel(priorityValue);
+          const reason = getReasonFromApi(ref);
+          const action = getActionFromApi(ref);
+          return `
+            <article class="action-focus-item">
+              <div class="action-focus-rank">${index + 1}</div>
+              <div class="action-focus-content">
+                <div class="action-focus-title-row">
+                  <strong>${escapeHtml(ref.referencia)}</strong>
+                  <span class="priority-pill ${priorityClass}">${escapeHtml(priorityLabel)}</span>
+                </div>
+                <span class="action-focus-desc">${escapeHtml(ref.descripcion)}</span>
+                <span class="action-focus-zone">${escapeHtml(item.zona)}</span>
+                <p><b>Motivo:</b> ${escapeHtml(reason)}</p>
+                <p><b>Plan de acción:</b> ${escapeHtml(action)}</p>
+              </div>
+            </article>
+          `;
+        }).join('')}
+      </div>
+    </section>
+  `;
+}
+
+renderMundoSeccionCalculated = function (rows) {
+  const container = document.getElementById('mundoSeccionContainer');
+  if (!container) return;
+
+  if (!currentStoreName) {
+    renderGeneralDashboard();
+    return;
+  }
+
+  const safeRows = Array.isArray(rows) ? rows : [];
+
+  if (!safeRows.length) {
+    openSectionKey = null;
+    container.innerHTML = renderEmptyState('Sin zonas críticas', 'Esta tienda no tiene referencias que cumplan los criterios definidos para revisión.');
+    return;
+  }
+
+  const note = `
+    <div class="info-note">
+      <strong>Solo se muestran productos que necesitan gestión.</strong>
+      <span>El orden viene calculado desde Apps Script para evitar procesos pesados en el dashboard.</span>
+    </div>
+  `;
+
+  container.innerHTML = renderActionFocus(safeRows) + safeRows.map((row, index) => renderSectionRow(row, index)).join('') + note;
+};
+
 renderSectionRow = function (row, index) {
   const isOpen = openSectionKey === row.key;
   const statusClass = getEstadoGrupoClass(row.estadoGrupo);
