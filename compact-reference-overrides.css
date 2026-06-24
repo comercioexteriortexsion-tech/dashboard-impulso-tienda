@@ -2,6 +2,10 @@
    Sprint 3.1 - Filas compactas de referencias
    ========================================================= */
 
+.action-focus-card {
+  display: none !important;
+}
+
 .compact-ref-list {
   display: grid;
   gap: 0;
