@@ -59,22 +59,58 @@
 - Permite abrir una tienda con parametro en la URL.
 - Parametros aceptados: tienda, store y almacen.
 
-## Recomendaciones siguientes
-
 ### Sprint 3.14 - Link compartible por tienda
-- Agregar boton visible para copiar el enlace directo de la tienda actual.
-- Uso esperado: enviar el enlace por WhatsApp al equipo de tienda.
+- Se creo la base tecnica del boton Link tienda.
+- Estado actual: funcionalidad instalada, boton oculto temporalmente por decision operativa.
+- Archivo relacionado: store-share-link.js.
 
-### Sprint 3.15 - Panel de control tecnico
-- Mostrar estado de ultima actualizacion.
-- Validar si Apps Script esta entregando las columnas nuevas.
-- Alertar si faltan campos calculados.
+### Sprint 3.15 - Panel tecnico
+- Se creo una prueba de panel tecnico.
+- Estado actual: retirado del dashboard porque no se requiere en la operacion.
+- Archivo technical-status.js eliminado.
 
-### Sprint 3.16 - Limpieza de frontend
+## Sprint 4 - Reporte ejecutivo y seguimiento comercial
+
+### Sprint 4.1 - Reporte ejecutivo comercial
+- Se creo la base tecnica para generar reporte ejecutivo desde vista general o desde tienda.
+- Estado actual: funcionalidad instalada, boton Reporte oculto temporalmente para revision posterior.
+- Archivo relacionado: executive-report.js.
+
+### Sprint 4.2 - Ordenamiento del roadmap y cierre de pendientes visibles
+- Se documenta que Link tienda y Reporte quedan en pausa visual, pero no eliminados.
+- El dashboard operativo queda limpio para uso diario.
+- La continuidad del Sprint 4 debe enfocarse en estructuras de seguimiento comercial que no saturen la pantalla principal.
+
+## Estado operativo actual
+
+- Dashboard operativo limpio.
+- Apps Script calcula.
+- Google Sheets guarda.
+- GitHub muestra.
+- Semaforo operativo activo.
+- Ultima tienda recordada activa.
+- Enlace directo por parametro activo.
+- Boton Link tienda oculto.
+- Boton Reporte oculto.
+- Panel tecnico eliminado.
+
+## Proximos sprints sugeridos
+
+### Sprint 4.3 - Resumen comercial por tienda en Google Sheets
+- Crear una tabla calculada para resumen ejecutivo por tienda.
+- Debe venir desde Apps Script, no desde calculos pesados en GitHub.
+- Base sugerida: dashboard_resumen_tienda.
+
+### Sprint 4.4 - Ranking ejecutivo consolidado
+- Crear ranking de tiendas con mayor oportunidad comercial.
+- Combinar cumplimiento, alertas, inventario y venta reciente.
+- Base sugerida: dashboard_ranking_oportunidad.
+
+### Sprint 4.5 - Seguimiento semanal
+- Crear una salida para corte semanal.
+- Debe permitir lectura rapida para coordinacion, gerencia o lideres comerciales.
+
+### Sprint 4.6 - Limpieza de frontend
 - Consolidar estilos en menos archivos.
 - Reducir reglas duplicadas.
 - Dejar una sola capa visual de override.
-
-### Sprint 3.17 - Reporte ejecutivo semanal
-- Crear salida resumida por tienda o consolidado.
-- Base para enviar avances a gerencia o coordinacion comercial.
