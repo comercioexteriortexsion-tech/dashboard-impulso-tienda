@@ -85,7 +85,23 @@ function getSemaphoreName(item) {
   return 'seguimiento';
 }
 
+function hasAppsScriptCriteria(row) {
+  return row && (
+    row.referenciasUrgentes !== undefined ||
+    row.referenciasRevisar !== undefined ||
+    row.referenciasSeguimiento !== undefined
+  );
+}
+
 function countCriteriaBySection(row) {
+  if (hasAppsScriptCriteria(row)) {
+    return {
+      c1: toNumber(row.referenciasUrgentes),
+      c2: toNumber(row.referenciasRevisar),
+      c3: toNumber(row.referenciasSeguimiento)
+    };
+  }
+
   const counts = { c1: 0, c2: 0, c3: 0 };
   const refs = Array.isArray(row && row.productosCriticos) ? row.productosCriticos : [];
 
@@ -132,6 +148,10 @@ function sortReferencesByCriterion(items) {
 
 function sortSectionsByCriterion(rows) {
   return [...(rows || [])].sort((a, b) => {
+    const ordenA = toNumber(a.ordenPrioridadSeccion);
+    const ordenB = toNumber(b.ordenPrioridadSeccion);
+    if (ordenA || ordenB) return (ordenA || 9999) - (ordenB || 9999);
+
     const ca = countCriteriaBySection(a);
     const cb = countCriteriaBySection(b);
 
@@ -142,6 +162,31 @@ function sortSectionsByCriterion(rows) {
       toNumber(b.porcentajeAlertas) - toNumber(a.porcentajeAlertas) ||
       String(`${a.mundo || ''} ${a.seccion || ''}`).localeCompare(String(`${b.mundo || ''} ${b.seccion || ''}`), 'es');
   });
+}
+
+if (typeof normalizeOptimizedDashboard === 'function') {
+  const originalNormalizeOptimizedDashboard = normalizeOptimizedDashboard;
+  normalizeOptimizedDashboard = function (json) {
+    const dashboard = originalNormalizeOptimizedDashboard(json);
+    const zonasRaw = Array.isArray(json && json.zonas) ? json.zonas : [];
+
+    dashboard.zonas = (dashboard.zonas || []).map((zona, index) => {
+      const raw = zonasRaw[index] || {};
+      return Object.assign({}, zona, {
+        referenciasUrgentes: toNumber(raw.referencias_urgentes),
+        referenciasRevisar: toNumber(raw.referencias_revisar),
+        referenciasSeguimiento: toNumber(raw.referencias_seguimiento),
+        nivelPrioridadSeccion: toNumber(raw.nivel_prioridad_seccion),
+        ordenPrioridadSeccion: toNumber(raw.orden_prioridad_seccion) || toNumber(raw.orden) || index + 1
+      });
+    }).sort((a, b) => {
+      const ordenA = toNumber(a.ordenPrioridadSeccion);
+      const ordenB = toNumber(b.ordenPrioridadSeccion);
+      return (ordenA || 9999) - (ordenB || 9999);
+    });
+
+    return dashboard;
+  };
 }
 
 if (typeof renderMundoSeccionCalculated === 'function') {
@@ -158,7 +203,7 @@ renderSectionRow = function (row, index) {
   const statusClass = getEstadoGrupoClass(row.estadoGrupo);
   const accentClass = getSectionAccentClass(row.estadoGrupo, index);
   const counts = countCriteriaBySection(row);
-  const statusLabel = counts.c1 > 0 ? 'Urgente' : counts.c2 > 0 ? 'Revisar' : getSimpleSectionLabel(row.estadoGrupo);
+  const statusLabel = row.nivelPrioridadSeccion === 1 || counts.c1 > 0 ? 'Urgente' : (row.nivelPrioridadSeccion === 2 || counts.c2 > 0 ? 'Revisar' : getSimpleSectionLabel(row.estadoGrupo));
 
   return `
     <article class="category-card ${isOpen ? 'open' : ''} ${accentClass}">
