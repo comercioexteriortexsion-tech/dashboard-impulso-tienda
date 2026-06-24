@@ -99,6 +99,29 @@ function countCriteriaBySection(row) {
   return counts;
 }
 
+function renderCriteriaChips(counts) {
+  const chips = [];
+  if (counts.c1) chips.push(`<span class="section-semaphore-chip section-semaphore-chip--urgent">${formatNumber(counts.c1)} urgente${counts.c1 === 1 ? '' : 's'}</span>`);
+  if (counts.c2) chips.push(`<span class="section-semaphore-chip section-semaphore-chip--review">${formatNumber(counts.c2)} revisar</span>`);
+  if (counts.c3) chips.push(`<span class="section-semaphore-chip section-semaphore-chip--follow">${formatNumber(counts.c3)} seguimiento</span>`);
+  return chips.length ? `<div class="section-semaphore-summary">${chips.join('')}</div>` : '';
+}
+
+function ensureSectionSemaphoreStyles() {
+  if (document.getElementById('sectionSemaphoreStyles')) return;
+  const style = document.createElement('style');
+  style.id = 'sectionSemaphoreStyles';
+  style.textContent = `
+    .section-semaphore-summary{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;align-items:center}
+    .section-semaphore-chip{display:inline-flex;align-items:center;border-radius:999px;padding:3px 7px;font-size:.62rem;font-weight:900;line-height:1;white-space:nowrap;border:1px solid transparent}
+    .section-semaphore-chip--urgent{background:#fee2e2;color:#b91c1c;border-color:#fca5a5}
+    .section-semaphore-chip--review{background:#fef3c7;color:#92400e;border-color:#fcd34d}
+    .section-semaphore-chip--follow{background:#dcfce7;color:#166534;border-color:#86efac}
+    @media(max-width:760px){.section-semaphore-chip{font-size:.58rem;padding:3px 6px}.section-semaphore-summary{gap:3px}}
+  `;
+  document.head.appendChild(style);
+}
+
 function sortReferencesByCriterion(items) {
   return [...(items || [])].sort((a, b) => {
     return getCriterionLevel(a) - getCriterionLevel(b) ||
@@ -130,6 +153,7 @@ if (typeof renderMundoSeccionCalculated === 'function') {
 }
 
 renderSectionRow = function (row, index) {
+  ensureSectionSemaphoreStyles();
   const isOpen = openSectionKey === row.key;
   const statusClass = getEstadoGrupoClass(row.estadoGrupo);
   const accentClass = getSectionAccentClass(row.estadoGrupo, index);
@@ -143,6 +167,7 @@ renderSectionRow = function (row, index) {
         <div class="category-main">
           <strong>${escapeHtml(row.mundo)} / ${escapeHtml(row.seccion)}</strong>
           <span>${formatNumber(row.totalReferencias)} referencias totales</span>
+          ${renderCriteriaChips(counts)}
         </div>
         <div class="category-metric"><span>Hay</span><strong>${formatNumber(row.inventario)}</strong></div>
         <div class="category-metric"><span>Vendió</span><strong>${formatNumber(row.ventaUnidades)}</strong></div>
@@ -173,7 +198,6 @@ renderSectionReferences = function (items) {
     </div>
     <div class="compact-ref-list">
       ${filteredItems.map(item => {
-        const priorityValue = getPriorityValue(item);
         const semaforo = getSemaphoreName(item);
         const priorityClass = `priority-pill--${semaforo}`;
         const priorityLabel = semaforo === 'urgente' ? 'Urgente' : semaforo === 'revisar' ? 'Revisar' : 'Seguimiento';
