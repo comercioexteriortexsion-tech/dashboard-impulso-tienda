@@ -1,5 +1,7 @@
 (function(){
-  function closePrioritySectionsOnStoreLoad(){
+  var lastStoreName=null;
+
+  function closePrioritySections(){
     try{
       if(typeof openSectionKey!=='undefined'){
         openSectionKey=null;
@@ -15,11 +17,17 @@
     var originalRenderDashboard=renderDashboard;
 
     renderDashboard=function(storeName){
-      closePrioritySectionsOnStoreLoad();
+      var normalizedStoreName=String(storeName||'');
+
+      if(normalizedStoreName!==lastStoreName){
+        closePrioritySections();
+        lastStoreName=normalizedStoreName;
+      }
+
       return originalRenderDashboard.apply(this,arguments);
     };
 
-    closePrioritySectionsOnStoreLoad();
+    closePrioritySections();
     return true;
   }
 
