@@ -30,14 +30,21 @@
         --semaforo-verde-oscuro:#14532d;
         --semaforo-verde-fondo:#e9fbe8;
         --semaforo-verde-borde:#16a34a;
+        --seccion-azul-fondo:#f4f8ff;
+        --seccion-azul-fondo-open:#eef6ff;
+        --seccion-azul-borde:#bfdbfe;
+        --seccion-azul-lateral:#3b82f6;
+        --seccion-azul-texto:#1e3a8a;
       }
 
+      /* =========================================================
+         SEMÁFORO VISIBLE SOLO EN CHIPS/ETIQUETAS
+         ========================================================= */
       .section-semaphore-chip--urgent,
       .alert-chip--critical,
       .alert-chip--sinventa,
       .priority-pill--urgente,
-      .priority-pill--alta,
-      .status-prioritario{
+      .priority-pill--alta{
         background:var(--semaforo-rojo)!important;
         color:#ffffff!important;
         border-color:var(--semaforo-rojo-oscuro)!important;
@@ -47,8 +54,7 @@
       .section-semaphore-chip--review,
       .alert-chip--lento,
       .priority-pill--revisar,
-      .priority-pill--media,
-      .status-revision{
+      .priority-pill--media{
         background:var(--semaforo-amarillo)!important;
         color:#111827!important;
         border-color:var(--semaforo-amarillo-oscuro)!important;
@@ -58,16 +64,82 @@
       .section-semaphore-chip--follow,
       .priority-pill--seguimiento,
       .priority-pill--baja,
-      .priority-pill--neutral,
-      .status-controlado{
+      .priority-pill--neutral{
         background:var(--semaforo-verde)!important;
         color:#ffffff!important;
         border-color:var(--semaforo-verde-oscuro)!important;
         box-shadow:0 0 0 2px rgba(34,197,94,.15),0 6px 14px rgba(34,197,94,.22)!important;
       }
 
+      /* =========================================================
+         TARJETAS PRINCIPALES DE SECCIONES: NEUTRAS EN AZUL CLARO
+         ========================================================= */
+      .category-card,
       .category-card.accent-prioritario,
+      .category-card.accent-revision,
+      .category-card.accent-controlado,
+      .category-card.accent-blue-soft,
       .category-card:has(.status-prioritario),
+      .category-card:has(.status-revision),
+      .category-card:has(.status-controlado){
+        background:linear-gradient(90deg,#ffffff 0%,var(--seccion-azul-fondo) 100%)!important;
+        border:1.8px solid var(--seccion-azul-borde)!important;
+        border-left:7px solid var(--seccion-azul-lateral)!important;
+        box-shadow:0 10px 26px rgba(37,99,235,.10)!important;
+      }
+
+      .category-card.open,
+      .category-card.accent-prioritario.open,
+      .category-card.accent-revision.open,
+      .category-card.accent-controlado.open,
+      .category-card.accent-blue-soft.open{
+        background:linear-gradient(90deg,#ffffff 0%,var(--seccion-azul-fondo-open) 100%)!important;
+        border-color:#93c5fd!important;
+        border-left-color:var(--seccion-azul-lateral)!important;
+        box-shadow:0 14px 34px rgba(37,99,235,.14)!important;
+      }
+
+      .status-prioritario,
+      .status-revision,
+      .status-controlado{
+        background:#eff6ff!important;
+        color:var(--seccion-azul-texto)!important;
+        border:1px solid #93c5fd!important;
+        box-shadow:none!important;
+      }
+
+      .rank-badge,
+      .category-card.accent-prioritario .rank-badge,
+      .category-card.accent-revision .rank-badge,
+      .category-card.accent-controlado .rank-badge,
+      .category-card.accent-blue-soft .rank-badge,
+      .category-card:has(.status-prioritario) .rank-badge,
+      .category-card:has(.status-revision) .rank-badge,
+      .category-card:has(.status-controlado) .rank-badge{
+        background:#2563eb!important;
+        color:#ffffff!important;
+        font-weight:1000!important;
+        box-shadow:0 4px 10px rgba(37,99,235,.22)!important;
+      }
+
+      .expand-indicator,
+      .category-card.accent-prioritario .expand-indicator,
+      .category-card.accent-revision .expand-indicator,
+      .category-card.accent-controlado .expand-indicator,
+      .category-card.accent-blue-soft .expand-indicator,
+      .category-card:has(.status-prioritario) .expand-indicator,
+      .category-card:has(.status-revision) .expand-indicator,
+      .category-card:has(.status-controlado) .expand-indicator{
+        background:#ffffff!important;
+        color:var(--seccion-azul-texto)!important;
+        border:1.5px solid #2563eb!important;
+        font-weight:1000!important;
+        box-shadow:none!important;
+      }
+
+      /* =========================================================
+         TARJETAS DE REFERENCIAS: CONSERVAN COLOR DE SEMÁFORO
+         ========================================================= */
       .compact-ref-row--urgente{
         background:linear-gradient(90deg,#ffffff 0%,var(--semaforo-rojo-fondo) 100%)!important;
         border:2px solid var(--semaforo-rojo-borde)!important;
@@ -75,8 +147,6 @@
         box-shadow:0 10px 28px rgba(239,31,31,.15)!important;
       }
 
-      .category-card.accent-revision,
-      .category-card:has(.status-revision),
       .compact-ref-row--revisar{
         background:linear-gradient(90deg,#ffffff 0%,var(--semaforo-amarillo-fondo) 100%)!important;
         border:2px solid var(--semaforo-amarillo-borde)!important;
@@ -84,9 +154,6 @@
         box-shadow:0 10px 28px rgba(248,195,0,.16)!important;
       }
 
-      .category-card.accent-controlado,
-      .category-card.accent-blue-soft,
-      .category-card:has(.status-controlado),
       .compact-ref-row--seguimiento{
         background:linear-gradient(90deg,#ffffff 0%,var(--semaforo-verde-fondo) 100%)!important;
         border:2px solid var(--semaforo-verde-borde)!important;
@@ -130,56 +197,15 @@
         color:#14532d!important;
       }
 
-      .rank-badge{
-        font-weight:1000!important;
-      }
-
-      .category-card.accent-prioritario .rank-badge,
-      .category-card:has(.status-prioritario) .rank-badge{
-        background:var(--semaforo-rojo)!important;
-        color:#ffffff!important;
-      }
-
-      .category-card.accent-revision .rank-badge,
-      .category-card:has(.status-revision) .rank-badge{
-        background:var(--semaforo-amarillo)!important;
-        color:#111827!important;
-      }
-
-      .category-card.accent-controlado .rank-badge,
-      .category-card.accent-blue-soft .rank-badge,
-      .category-card:has(.status-controlado) .rank-badge{
-        background:var(--semaforo-verde)!important;
-        color:#ffffff!important;
-      }
-
-      .expand-indicator{
-        border:1.5px solid currentColor!important;
-        font-weight:1000!important;
-      }
-
-      .category-card.accent-prioritario .expand-indicator,
-      .category-card:has(.status-prioritario) .expand-indicator{
-        background:#ffffff!important;
-        color:var(--semaforo-rojo)!important;
-      }
-
-      .category-card.accent-revision .expand-indicator,
-      .category-card:has(.status-revision) .expand-indicator{
-        background:#ffffff!important;
-        color:#a16207!important;
-      }
-
-      .category-card.accent-controlado .expand-indicator,
-      .category-card.accent-blue-soft .expand-indicator,
-      .category-card:has(.status-controlado) .expand-indicator{
-        background:#ffffff!important;
-        color:var(--semaforo-verde-oscuro)!important;
-      }
-
       @media(max-width:760px){
         .category-card{
-          border-left-width:7px!important;
+          border-left-width:6px!important;
+        }
+
+        .compact-ref-row--urgente,
+        .compact-ref-row--revisar,
+        .compact-ref-row--seguimiento{
+          border-left-width:8px!important;
         }
 
         .section-semaphore-chip,
