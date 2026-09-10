@@ -1,21 +1,17 @@
 /* =========================================================
-   Sprint 3.1 - Ajustes móviles y proporción visual
-   Objetivo: compactar el dashboard en celular, reducir desplazamiento
-   y mantener una visual estable aunque cambie el zoom del navegador.
+   Ajustes móviles base
+   Importante: no ocultar indicadores de sección.
+   La visual definitiva de las tarjetas de zonas se controla desde
+   auto-open-priority-section.js, cargado al final del dashboard.
    ========================================================= */
 
-html {
+html,
+body {
   width: 100%;
   max-width: 100%;
   overflow-x: hidden;
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
-}
-
-body {
-  width: 100%;
-  max-width: 100%;
-  overflow-x: hidden;
 }
 
 .app-main,
@@ -155,6 +151,7 @@ body {
   padding: 12px !important;
   border-radius: 16px !important;
   margin-bottom: 14px !important;
+  overflow: hidden !important;
 }
 
 .section-title {
@@ -172,55 +169,36 @@ body {
 }
 
 .category-list {
-  gap: 8px !important;
+  gap: 10px !important;
 }
 
-.category-card {
-  border-radius: 13px !important;
+.category-card,
+.category-card.open {
+  border-radius: 16px !important;
   overflow: hidden !important;
 }
 
 .category-card-header {
-  min-height: auto !important;
-  padding: 10px 10px 10px 16px !important;
-  grid-template-columns: 28px minmax(0, 1.25fr) repeat(3, minmax(52px, 0.7fr)) auto 18px !important;
-  gap: 7px !important;
-}
-
-.rank-badge {
-  width: 24px !important;
-  height: 24px !important;
-  font-size: 12px !important;
+  width: 100% !important;
+  min-width: 0 !important;
 }
 
 .category-main strong {
-  font-size: clamp(13px, 3.4vw, 16px) !important;
-  line-height: 1.1 !important;
+  white-space: normal !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
 }
 
 .category-main span,
-.category-metric span {
-  font-size: clamp(9.5px, 2.4vw, 11px) !important;
-  line-height: 1.12 !important;
-}
-
-.category-metric {
-  text-align: center !important;
-}
-
-.category-metric strong {
-  font-size: clamp(12px, 3vw, 15px) !important;
-  margin-top: 2px !important;
-}
-
+.category-metric span,
+.category-metric strong,
+.percent-metric,
+.category-metric:nth-of-type(1),
+.category-metric:nth-of-type(2),
+.category-metric:nth-of-type(3),
+.category-metric:nth-of-type(4),
 .status-pill {
-  padding: 5px 7px !important;
-  font-size: clamp(9px, 2.3vw, 11px) !important;
-  border-radius: 8px !important;
-}
-
-.expand-indicator {
-  font-size: 16px !important;
+  display: initial;
 }
 
 .section-references {
@@ -316,16 +294,13 @@ body {
     grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
   }
 
-  .category-card-header {
-    grid-template-columns: 24px minmax(0, 1fr) 54px 54px 58px 72px 18px !important;
-  }
-
-  .category-metric:nth-of-type(2) {
-    display: none !important;
-  }
-
-  .percent-metric {
-    display: none !important;
+  .category-main span,
+  .category-metric,
+  .category-metric span,
+  .category-metric strong,
+  .percent-metric,
+  .status-pill {
+    visibility: visible !important;
   }
 }
 
@@ -351,33 +326,6 @@ body {
   .summary-card small {
     font-size: 9.8px !important;
   }
-
-  .category-card-header {
-    grid-template-columns: 22px minmax(0, 1fr) 48px 52px 62px 16px !important;
-    gap: 6px !important;
-    padding: 9px 8px 9px 14px !important;
-  }
-
-  .category-main span {
-    display: none !important;
-  }
-
-  .category-metric span {
-    font-size: 9px !important;
-  }
-
-  .category-metric strong {
-    font-size: 12px !important;
-  }
-
-  .status-pill {
-    font-size: 9px !important;
-    padding: 4px 6px !important;
-  }
-
-  .compact-reference-table {
-    min-width: 720px !important;
-  }
 }
 
 @media (max-width: 360px) {
@@ -387,17 +335,5 @@ body {
 
   .summary-card {
     min-height: auto !important;
-  }
-
-  .category-card-header {
-    grid-template-columns: 22px minmax(0, 1fr) 48px 52px 16px !important;
-  }
-
-  .category-metric:nth-of-type(1) {
-    display: none !important;
-  }
-
-  .status-pill {
-    display: none !important;
   }
 }
