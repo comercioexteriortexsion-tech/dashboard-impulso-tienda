@@ -1,5 +1,6 @@
 (function () {
   var lastStoreName = null;
+  var originalRenderDashboardRef = null;
 
   function closePrioritySections() {
     try {
@@ -11,8 +12,81 @@
     }
   }
 
+  function getSafeNumber(value) {
+    if (typeof toNumber === 'function') return toNumber(value);
+    var n = Number(String(value || '').replace('%', '').replace(',', '.'));
+    return isFinite(n) ? n : 0;
+  }
+
+  function getSafePercent(value) {
+    if (typeof formatPercent === 'function') return formatPercent(value);
+    return Math.round(getSafeNumber(value) * 100) + '%';
+  }
+
+  function getSafeNumberText(value) {
+    if (typeof formatNumber === 'function') return formatNumber(value);
+    return String(getSafeNumber(value));
+  }
+
+  function getSafeHtml(value) {
+    if (typeof escapeHtml === 'function') return escapeHtml(value);
+    return String(value == null ? '' : value).replace(/[&<>'"]/g, function (char) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[char];
+    });
+  }
+
+  function getSafeAttribute(value) {
+    if (typeof escapeAttribute === 'function') return escapeAttribute(value);
+    return getSafeHtml(value).replace(/`/g, '&#96;');
+  }
+
+  function getSectionCounts(row) {
+    if (typeof countCriteriaBySection === 'function') return countCriteriaBySection(row);
+
+    return {
+      c1: getSafeNumber(row && (row.referenciasUrgentes || row.referencias_urgentes)),
+      c2: getSafeNumber(row && (row.referenciasRevisar || row.referencias_revisar)),
+      c3: getSafeNumber(row && (row.referenciasSeguimiento || row.referencias_seguimiento))
+    };
+  }
+
+  function getSectionChips(row) {
+    var counts = getSectionCounts(row || {});
+    if (typeof renderCriteriaChips === 'function') return renderCriteriaChips(counts);
+
+    var chips = [];
+    if (counts.c1) chips.push('<span class="section-semaphore-chip section-semaphore-chip--urgent">' + getSafeNumberText(counts.c1) + ' urgente' + (counts.c1 === 1 ? '' : 's') + '</span>');
+    if (counts.c2) chips.push('<span class="section-semaphore-chip section-semaphore-chip--review">' + getSafeNumberText(counts.c2) + ' revisar</span>');
+    if (counts.c3) chips.push('<span class="section-semaphore-chip section-semaphore-chip--follow">' + getSafeNumberText(counts.c3) + ' seguimiento</span>');
+    return chips.length ? '<div class="section-semaphore-summary">' + chips.join('') + '</div>' : '';
+  }
+
+  function getNeutralStatusClass(row) {
+    var estado = row && (row.estadoGrupo || row.estado_grupo || '');
+    if (typeof getEstadoGrupoClass === 'function') return getEstadoGrupoClass(estado);
+    if (estado === 'Controlado') return 'status-controlado';
+    if (estado === 'Revisión' || estado === 'Revision') return 'status-revision';
+    return 'status-prioritario';
+  }
+
+  function getNeutralAccentClass(row, index) {
+    var estado = row && (row.estadoGrupo || row.estado_grupo || '');
+    if (typeof getSectionAccentClass === 'function') return getSectionAccentClass(estado, index);
+    if (estado === 'Prioritario') return 'accent-prioritario';
+    if (estado === 'Revisión' || estado === 'Revision') return 'accent-revision';
+    return 'accent-blue-soft';
+  }
+
+  function getSectionReferences(row) {
+    if (!row) return [];
+    if (Array.isArray(row.productosCriticos)) return row.productosCriticos;
+    if (Array.isArray(row.referencias)) return row.referencias;
+    return [];
+  }
+
   function injectHighContrastSemaphoreStyles() {
-    if (document.getElementById('highContrastSemaphoreStyles')) return;
+    var existing = document.getElementById('highContrastSemaphoreStyles');
+    if (existing) existing.remove();
 
     var style = document.createElement('style');
     style.id = 'highContrastSemaphoreStyles';
@@ -22,17 +96,14 @@
         --semaforo-rojo-oscuro:#c81e1e;
         --semaforo-rojo-fondo:#fff1f1;
         --semaforo-rojo-borde:#ff6b63;
-
         --semaforo-amarillo:#f4b400;
         --semaforo-amarillo-oscuro:#9a6700;
         --semaforo-amarillo-fondo:#fff8dc;
         --semaforo-amarillo-borde:#f6c744;
-
         --semaforo-verde:#22c55e;
         --semaforo-verde-oscuro:#15803d;
         --semaforo-verde-fondo:#ecfdf3;
         --semaforo-verde-borde:#4ade80;
-
         --seccion-fondo:#f7fbff;
         --seccion-fondo-open:#f2f8ff;
         --seccion-borde:#b7d6ff;
@@ -44,9 +115,6 @@
         --seccion-boton:#1f6bff;
       }
 
-      /* =========================================================
-         CHIPS DE SEMÁFORO: ÚNICO COLOR FUERTE EN TARJETAS PRINCIPALES
-         ========================================================= */
       .section-semaphore-chip--urgent,
       .alert-chip--critical,
       .alert-chip--sinventa,
@@ -78,9 +146,6 @@
         box-shadow:0 4px 10px rgba(34,197,94,.20)!important;
       }
 
-      /* =========================================================
-         TARJETAS PRINCIPALES: SIEMPRE AZUL NEUTRO, SIN SEMÁFORO DOMINANTE
-         ========================================================= */
       .category-list .category-card,
       .category-list .category-card.open,
       .category-list .category-card.accent-prioritario,
@@ -95,10 +160,7 @@
       .category-list .category-card:has(.status-revision),
       .category-list .category-card:has(.status-controlado){
         background:linear-gradient(180deg,var(--seccion-fondo) 0%, #ffffff 100%)!important;
-        border-top:1.8px solid var(--seccion-borde)!important;
-        border-right:1.8px solid var(--seccion-borde)!important;
-        border-bottom:1.8px solid var(--seccion-borde)!important;
-        border-left:1.8px solid var(--seccion-borde)!important;
+        border:1.8px solid var(--seccion-borde)!important;
         box-shadow:0 8px 20px rgba(59,130,246,.08)!important;
         overflow:hidden!important;
       }
@@ -114,8 +176,6 @@
 
       .category-list .category-card::before,
       .category-list .category-card::after,
-      .category-list .category-card.open::before,
-      .category-list .category-card.open::after,
       .category-list .category-card-header::before,
       .category-list .category-card-header::after{
         background:transparent!important;
@@ -123,14 +183,9 @@
         box-shadow:none!important;
       }
 
-      .category-list .category-card [class*="status-"],
-      .category-list .status-prioritario,
-      .category-list .status-revision,
-      .category-list .status-controlado{
-        background:#eef5ff!important;
-        color:var(--seccion-texto)!important;
-        border:1px solid #bfd8ff!important;
-        box-shadow:none!important;
+      .category-list .category-card-header{
+        width:100%!important;
+        min-width:0!important;
       }
 
       .category-list .rank-badge,
@@ -154,10 +209,7 @@
       .category-list .category-card.accent-prioritario .expand-indicator,
       .category-list .category-card.accent-revision .expand-indicator,
       .category-list .category-card.accent-controlado .expand-indicator,
-      .category-list .category-card.accent-blue-soft .expand-indicator,
-      .category-list .category-card:has(.status-prioritario) .expand-indicator,
-      .category-list .category-card:has(.status-revision) .expand-indicator,
-      .category-list .category-card:has(.status-controlado) .expand-indicator{
+      .category-list .category-card.accent-blue-soft .expand-indicator{
         background:#ffffff!important;
         color:var(--seccion-boton)!important;
         border:2px solid var(--seccion-boton)!important;
@@ -165,14 +217,10 @@
         font-weight:900!important;
       }
 
-      .category-list .category-card strong,
-      .category-list .category-card h3,
       .category-list .category-card .category-main strong{
         color:var(--seccion-texto)!important;
       }
 
-      .category-list .category-card p,
-      .category-list .category-card small,
       .category-list .category-card .category-main span,
       .category-list .category-card .category-metric span{
         color:var(--seccion-texto-sec)!important;
@@ -186,7 +234,6 @@
         color:var(--semaforo-rojo)!important;
       }
 
-      /* Indicador derecho pequeño: conserva color, pero sin colorear tarjeta */
       .category-list .category-card .status-pill{
         min-width:34px!important;
         width:34px!important;
@@ -197,26 +244,24 @@
         font-size:0!important;
         overflow:hidden!important;
         justify-self:center!important;
+        box-shadow:0 2px 8px rgba(15,23,42,.14)!important;
       }
 
       .category-list .category-card .status-prioritario{
         background:var(--semaforo-rojo)!important;
-        border-color:var(--semaforo-rojo-oscuro)!important;
+        border:1px solid var(--semaforo-rojo-oscuro)!important;
       }
 
       .category-list .category-card .status-revision{
         background:var(--semaforo-amarillo)!important;
-        border-color:var(--semaforo-amarillo-oscuro)!important;
+        border:1px solid var(--semaforo-amarillo-oscuro)!important;
       }
 
       .category-list .category-card .status-controlado{
         background:var(--semaforo-verde)!important;
-        border-color:var(--semaforo-verde-oscuro)!important;
+        border:1px solid var(--semaforo-verde-oscuro)!important;
       }
 
-      /* =========================================================
-         TARJETAS INTERNAS DE REFERENCIAS: CONSERVAN COLOR DE SEMÁFORO
-         ========================================================= */
       .compact-ref-row--urgente{
         background:linear-gradient(90deg,#ffffff 0%,var(--semaforo-rojo-fondo) 100%)!important;
         border:2px solid var(--semaforo-rojo-borde)!important;
@@ -274,9 +319,6 @@
         color:#14532d!important;
       }
 
-      /* =========================================================
-         MÓVIL: DATOS VISIBLES, SIN CORTES Y MISMA LÓGICA DE LA SIMULACIÓN
-         ========================================================= */
       @media (max-width:760px){
         .app-main{
           padding-left:10px!important;
@@ -295,17 +337,16 @@
 
         .category-list .category-card,
         .category-list .category-card.open{
-          border-left-width:1.8px!important;
           border-radius:16px!important;
           overflow:hidden!important;
         }
 
         .category-list .category-card-header{
           display:grid!important;
-          grid-template-columns:32px minmax(112px,1.2fr) repeat(4,minmax(38px,.58fr)) 24px!important;
+          grid-template-columns:34px minmax(130px,1.15fr) 44px 50px 48px 52px 28px!important;
           grid-template-areas:
-            "rank main hay venta revisar pct status"
-            "action main hay venta revisar pct status"!important;
+            "rank main hay vendido revisar percent status"
+            "action main hay vendido revisar percent status"!important;
           align-items:center!important;
           column-gap:5px!important;
           row-gap:6px!important;
@@ -321,6 +362,7 @@
           min-width:30px!important;
           font-size:.82rem!important;
           align-self:start!important;
+          justify-self:center!important;
         }
 
         .category-list .category-main{
@@ -363,6 +405,11 @@
           box-shadow:0 3px 8px rgba(15,23,42,.14)!important;
         }
 
+        .category-list .metric-hay{grid-area:hay!important;}
+        .category-list .metric-vendido{grid-area:vendido!important;}
+        .category-list .metric-revisar{grid-area:revisar!important;}
+        .category-list .metric-percent{grid-area:percent!important;}
+
         .category-list .category-metric{
           display:flex!important;
           flex-direction:column!important;
@@ -372,11 +419,6 @@
           gap:1px!important;
           padding:0!important;
         }
-
-        .category-list .category-metric:nth-of-type(1){grid-area:hay!important;}
-        .category-list .category-metric:nth-of-type(2){grid-area:venta!important;}
-        .category-list .category-metric:nth-of-type(3){grid-area:revisar!important;}
-        .category-list .category-metric:nth-of-type(4){grid-area:pct!important;}
 
         .category-list .category-metric span{
           font-size:.58rem!important;
@@ -390,55 +432,62 @@
           white-space:nowrap!important;
         }
 
-        .category-list .percent-metric strong{
+        .category-list .percent-metric strong,
+        .category-list .metric-percent strong{
           font-size:.72rem!important;
         }
 
         .category-list .status-pill{
           grid-area:status!important;
-          width:22px!important;
-          height:22px!important;
-          min-width:22px!important;
+          position:static!important;
+          transform:none!important;
+          margin:0!important;
+          width:28px!important;
+          height:28px!important;
+          min-width:28px!important;
+          align-self:center!important;
           justify-self:end!important;
         }
 
         .category-list .expand-indicator{
           grid-area:action!important;
-          min-width:0!important;
-          width:fit-content!important;
-          height:28px!important;
-          min-height:28px!important;
-          padding:4px 9px!important;
+          align-self:end!important;
+          justify-self:center!important;
+          min-width:46px!important;
+          width:auto!important;
+          padding:5px 8px!important;
           border-radius:999px!important;
-          font-size:.68rem!important;
+          font-size:.78rem!important;
           line-height:1!important;
-          align-self:start!important;
+          text-align:center!important;
+        }
+
+        .category-list .section-references{
+          padding:10px 6px 12px!important;
+          border-top:1px solid #bfdbfe!important;
+          background:#f8fbff!important;
         }
 
         .reference-detail-head{
-          margin:8px 6px 8px!important;
-          padding:9px 10px!important;
+          margin:0 0 8px!important;
+          padding:10px 12px!important;
           border-radius:14px!important;
         }
 
         .reference-detail-head strong{
-          font-size:.78rem!important;
+          font-size:.88rem!important;
         }
 
         .reference-detail-head span{
-          font-size:.66rem!important;
+          font-size:.7rem!important;
         }
 
         .compact-ref-list{
-          gap:9px!important;
-          padding:0 6px 10px!important;
+          gap:10px!important;
           background:transparent!important;
         }
 
-        .compact-ref-row,
-        .compact-ref-row--urgente,
-        .compact-ref-row--revisar,
-        .compact-ref-row--seguimiento{
+        .compact-ref-row{
           display:grid!important;
           grid-template-columns:minmax(0,1fr) auto!important;
           grid-template-areas:
@@ -446,150 +495,145 @@
             "criteria criteria"
             "metrics metrics"
             "action action"!important;
-          gap:7px!important;
-          padding:10px 9px!important;
-          border-radius:15px!important;
-          border-left-width:7px!important;
+          gap:8px!important;
+          padding:12px 10px!important;
+          border-radius:16px!important;
           overflow:hidden!important;
         }
 
-        .compact-ref-main{
-          min-width:0!important;
-        }
-
         .compact-ref-main strong{
-          font-size:.98rem!important;
+          font-size:1rem!important;
           line-height:1.05!important;
-          white-space:normal!important;
         }
 
         .compact-ref-main span{
-          font-size:.72rem!important;
+          font-size:.78rem!important;
           line-height:1.12!important;
-          white-space:normal!important;
-        }
-
-        .compact-ref-priority{
-          justify-self:end!important;
-          max-width:92px!important;
         }
 
         .compact-ref-priority .priority-pill{
-          max-width:92px!important;
           min-width:auto!important;
-          padding:5px 9px!important;
-          font-size:.66rem!important;
-          line-height:1!important;
-          white-space:nowrap!important;
+          padding:6px 10px!important;
+          font-size:.72rem!important;
+          border-radius:999px!important;
         }
 
         .compact-ref-criteria{
-          width:100%!important;
-          max-width:100%!important;
-          box-sizing:border-box!important;
-          padding:6px 8px!important;
-          border-radius:999px!important;
-          font-size:.70rem!important;
+          font-size:.78rem!important;
           line-height:1.12!important;
-          white-space:normal!important;
+          padding:7px 10px!important;
+          border-radius:999px!important;
         }
 
         .compact-ref-metrics{
-          display:flex!important;
-          flex-wrap:wrap!important;
-          gap:5px 8px!important;
-          font-size:.69rem!important;
-          line-height:1.18!important;
-          color:#64748b!important;
+          font-size:.74rem!important;
+          line-height:1.25!important;
+          gap:4px 8px!important;
         }
 
         .compact-ref-metrics span{
           white-space:normal!important;
         }
 
-        .compact-ref-metrics span:not(:last-child)::after{
-          content:' |';
-          color:#94a3b8;
-          margin-left:6px;
-          font-weight:700;
-        }
-
         .compact-ref-action{
-          width:100%!important;
-          box-sizing:border-box!important;
-          padding:8px 9px!important;
-          border-radius:10px!important;
-          font-size:.72rem!important;
-          line-height:1.18!important;
-          white-space:normal!important;
+          font-size:.78rem!important;
+          line-height:1.2!important;
+          padding:9px 10px!important;
+          border-radius:12px!important;
         }
       }
 
-      @media (max-width:430px){
+      @media (max-width:390px){
         .category-list .category-card-header{
-          grid-template-columns:30px minmax(104px,1.25fr) repeat(4,minmax(34px,.52fr)) 22px!important;
+          grid-template-columns:32px minmax(116px,1fr) 40px 44px 44px 48px 26px!important;
           column-gap:4px!important;
           padding:10px 6px!important;
         }
 
         .category-list .category-main strong{
-          font-size:.80rem!important;
-        }
-
-        .category-list .category-main > span{
-          font-size:.60rem!important;
-        }
-
-        .category-list .section-semaphore-chip{
-          font-size:.50rem!important;
-          padding:3px 5px!important;
+          font-size:.82rem!important;
         }
 
         .category-list .category-metric span{
-          font-size:.52rem!important;
+          font-size:.54rem!important;
         }
 
         .category-list .category-metric strong{
           font-size:.72rem!important;
         }
 
-        .category-list .percent-metric strong{
-          font-size:.66rem!important;
-        }
-
-        .category-list .status-pill{
-          width:20px!important;
-          height:20px!important;
-          min-width:20px!important;
-        }
-
-        .category-list .expand-indicator{
-          font-size:.62rem!important;
-          padding:4px 8px!important;
+        .category-list .section-semaphore-chip{
+          font-size:.51rem!important;
+          padding:3px 5px!important;
         }
       }
     `;
     document.head.appendChild(style);
   }
 
+  function overrideSectionRenderer() {
+    if (typeof renderSectionRow !== 'function') return false;
+
+    renderSectionRow = function (row, index) {
+      if (typeof ensureSectionSemaphoreStyles === 'function') ensureSectionSemaphoreStyles();
+      injectHighContrastSemaphoreStyles();
+
+      var isOpen = openSectionKey === row.key;
+      var statusClass = getNeutralStatusClass(row);
+      var accentClass = getNeutralAccentClass(row, index);
+      var refs = getSectionReferences(row);
+      var chips = getSectionChips(row);
+      var percent = row.porcentajeAlertas != null ? row.porcentajeAlertas : row.porcentaje_alertas;
+      var sectionKey = row.key || row.key_zona || ((row.mundo || 'SIN MUNDO') + '|' + (row.seccion || 'SIN SECCIÓN'));
+
+      return `
+        <article class="category-card ${isOpen ? 'open' : ''} ${accentClass}">
+          <button class="category-card-header mobile-priority-card" type="button" onclick="toggleSection('${getSafeAttribute(sectionKey)}')" aria-expanded="${isOpen}">
+            <div class="rank-badge">${index + 1}</div>
+            <div class="category-main">
+              <strong>${getSafeHtml(row.mundo)} / ${getSafeHtml(row.seccion)}</strong>
+              <span>${getSafeNumberText(row.totalReferencias || row.total_referencias)} referencias totales</span>
+              ${chips}
+            </div>
+            <div class="category-metric metric-hay"><span>Hay</span><strong>${getSafeNumberText(row.inventario)}</strong></div>
+            <div class="category-metric metric-vendido"><span>Vendió</span><strong>${getSafeNumberText(row.ventaUnidades || row.venta_unidades)}</strong></div>
+            <div class="category-metric alert-metric metric-revisar"><span>Revisar</span><strong>${getSafeNumberText(row.alertas)}</strong></div>
+            <div class="category-metric percent-metric metric-percent"><span>% revisar</span><strong>${getSafePercent(percent)}</strong></div>
+            <span class="status-pill ${statusClass}">${getSafeHtml(row.estadoGrupo || row.estado_grupo || '')}</span>
+            <span class="expand-indicator">${isOpen ? 'Cerrar' : 'Ver'}</span>
+          </button>
+          <div class="section-references ${isOpen ? '' : 'hidden'}">
+            ${isOpen ? renderSectionReferences(refs) : ''}
+          </div>
+        </article>
+      `;
+    };
+
+    return true;
+  }
+
   function activate() {
     injectHighContrastSemaphoreStyles();
+    overrideSectionRenderer();
 
     if (typeof renderDashboard !== 'function') return false;
 
-    var originalRenderDashboard = renderDashboard;
+    if (!originalRenderDashboardRef) {
+      originalRenderDashboardRef = renderDashboard;
 
-    renderDashboard = function (storeName) {
-      injectHighContrastSemaphoreStyles();
-      var normalizedStoreName = String(storeName || '');
+      renderDashboard = function (storeName) {
+        injectHighContrastSemaphoreStyles();
+        overrideSectionRenderer();
 
-      if (normalizedStoreName !== lastStoreName) {
-        closePrioritySections();
-        lastStoreName = normalizedStoreName;
-      }
+        var normalizedStoreName = String(storeName || '');
+        if (normalizedStoreName !== lastStoreName) {
+          closePrioritySections();
+          lastStoreName = normalizedStoreName;
+        }
 
-      return originalRenderDashboard.apply(this, arguments);
-    };
+        return originalRenderDashboardRef.apply(this, arguments);
+      };
+    }
 
     closePrioritySections();
     return true;
@@ -602,7 +646,7 @@
     function retry() {
       attempts++;
       if (activate()) return;
-      if (attempts < 20) setTimeout(retry, 250);
+      if (attempts < 30) setTimeout(retry, 250);
     }
 
     retry();
