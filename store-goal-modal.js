@@ -1,6 +1,7 @@
 /* =========================================================
    Modal de cumplimiento por tienda
-   Carga el ranking desde memoria, caché local o Apps Script.
+   Abre rápido usando ranking en memoria o caché local.
+   No bloquea la ventana esperando Apps Script.
    ========================================================= */
 
 function injectStoreGoalModalStyles() {
@@ -36,100 +37,37 @@ function injectStoreGoalModalStyles() {
     .store-goal-status { display:inline-flex; align-items:center; justify-content:center; min-width:76px; border-radius:999px; padding:7px 10px; font-size:.72rem; font-weight:950; white-space:nowrap; }
     .store-goal-status--up { background:#dcfce7; color:#166534; }
     .store-goal-status--down { background:#fee2e2; color:#991b1b; }
-    .store-goal-empty { padding:32px 14px; text-align:center; color:#64748b; font-weight:850; }
-    .store-goal-loading { padding:32px 14px; text-align:center; color:#334155; font-weight:900; }
-    .store-goal-error { padding:32px 14px; text-align:center; color:#991b1b; font-weight:900; background:#fff7f7; border:1px solid #fecaca; border-radius:18px; }
+    .store-goal-empty { padding:32px 14px; text-align:center; color:#64748b; font-weight:850; line-height:1.35; }
+    .store-goal-empty small { display:block; margin-top:8px; color:#94a3b8; font-size:.76rem; font-weight:750; }
     @media (min-width:720px){ .store-goal-modal-backdrop{align-items:center;} }
     @media (max-width:560px){ .store-goal-modal-backdrop{padding:10px;} .store-goal-modal{border-radius:24px 24px 18px 18px;max-height:86vh;} .store-goal-table th:nth-child(5),.store-goal-table td:nth-child(5){display:none;} .store-goal-store{max-width:135px;font-size:.79rem;} .store-goal-percent,.store-goal-expected{font-size:.9rem;} .store-goal-position{width:28px;height:28px;} }
   `;
   document.head.appendChild(style);
 }
 
-function normalizeStoreNameForCompare(value) { return String(value || '').trim().toUpperCase(); }
+function normalizeStoreNameForCompare(value) {
+  return String(value || '').trim().toUpperCase();
+}
 
 function getInitialDashboardCacheForGoal() {
   try {
+    if (typeof window.getDashboardInitialCache === 'function') return window.getDashboardInitialCache() || {};
     const raw = localStorage.getItem('impulso_cache_v2_inicio');
-    if (!raw) return null;
+    if (!raw) return {};
     const parsed = JSON.parse(raw);
-    return parsed && parsed.data ? parsed.data : null;
-  } catch (error) {
-    return null;
+    return parsed && parsed.data ? parsed.data : {};
+  } catch (e) {
+    return {};
   }
 }
 
-function saveInitialDashboardCacheForGoal(json) {
-  try {
-    const previous = getInitialDashboardCacheForGoal() || {};
-    const merged = Object.assign({}, previous, {
-      ok: true,
-      ultima_actualizacion: json.ultima_actualizacion || previous.ultima_actualizacion || '',
-      resumen_general: json.resumen_general || previous.resumen_general || {},
-      tiendas: Array.isArray(json.tiendas) ? json.tiendas : (previous.tiendas || []),
-      ranking_cumplimiento: Array.isArray(json.ranking_cumplimiento) ? json.ranking_cumplimiento : (previous.ranking_cumplimiento || []),
-      ranking_alertas: Array.isArray(json.ranking_alertas) ? json.ranking_alertas : (previous.ranking_alertas || [])
-    });
-    localStorage.setItem('impulso_cache_v2_inicio', JSON.stringify({ ts: Date.now(), data: merged }));
-  } catch (error) {
-    console.warn('No se pudo actualizar cache de ranking de cumplimiento', error);
-  }
-}
-
-function normalizeGoalRowsSafe(rows) {
-  if (typeof normalizeRankingCumplimiento === 'function') return normalizeRankingCumplimiento(rows || []);
-  return (rows || []).map((row, index) => {
-    const cumplimiento = typeof toNumber === 'function' ? toNumber(row.cumplimiento_meta || row.cumplimiento) : Number(row.cumplimiento_meta || row.cumplimiento || 0);
-    const esperado = typeof toNumber === 'function' ? toNumber(row.avance_esperado_mes || row.esperado) : Number(row.avance_esperado_mes || row.esperado || 0);
-    return {
-      posicion: row.posicion || index + 1,
-      tienda: row.nombre_almacen || row.tienda || '',
-      cumplimiento: isFinite(cumplimiento) ? cumplimiento : 0,
-      esperado: isFinite(esperado) ? esperado : 0,
-      estado: row.estado || ''
-    };
-  }).filter(row => row.tienda);
-}
-
-async function fetchInitialDashboardForGoal() {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 60000);
-  try {
-    const url = typeof buildApiUrl === 'function'
-      ? buildApiUrl({ modo: 'inicio' })
-      : API_URL + (API_URL.includes('?') ? '&' : '?') + 'modo=inicio';
-    const response = await fetch(url, { cache: 'no-store', signal: controller.signal });
-    if (!response.ok) throw new Error('HTTP ' + response.status + ': no fue posible consultar Apps Script.');
-    const json = await response.json();
-    if (!json || json.ok !== true) throw new Error((json && json.error) || 'Apps Script devolvió error.');
-    saveInitialDashboardCacheForGoal(json);
-    if (typeof setConnectionStatus === 'function') setConnectionStatus(true);
-    return json;
-  } catch (error) {
-    if (typeof setConnectionStatus === 'function') setConnectionStatus(false);
-    if (error && error.name === 'AbortError') throw new Error('La consulta del ranking superó el tiempo máximo de espera.');
-    throw error;
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-async function ensureGoalRankingRows() {
-  if (Array.isArray(rankingCumplimientoTiendas) && rankingCumplimientoTiendas.length) {
-    return rankingCumplimientoTiendas;
-  }
-
+function hydrateGoalRankingFromCache() {
   const cached = getInitialDashboardCacheForGoal();
-  if (cached && Array.isArray(cached.ranking_cumplimiento) && cached.ranking_cumplimiento.length) {
-    rankingCumplimientoTiendas = normalizeGoalRowsSafe(cached.ranking_cumplimiento);
+  if (Array.isArray(cached.ranking_cumplimiento) && cached.ranking_cumplimiento.length) {
+    rankingCumplimientoTiendas = normalizeRankingCumplimiento(cached.ranking_cumplimiento);
     return rankingCumplimientoTiendas;
   }
-
-  const json = await fetchInitialDashboardForGoal();
-  rankingCumplimientoTiendas = normalizeGoalRowsSafe(json.ranking_cumplimiento || []);
-  if (Array.isArray(json.ranking_alertas) && typeof normalizeRankingAlertas === 'function') {
-    rankingAlertasTiendas = normalizeRankingAlertas(json.ranking_alertas);
-  }
-  return rankingCumplimientoTiendas || [];
+  return Array.isArray(rankingCumplimientoTiendas) ? rankingCumplimientoTiendas : [];
 }
 
 function setupStoreGoalModal() {
@@ -139,37 +77,58 @@ function setupStoreGoalModal() {
   metaCard.dataset.goalModalReady = 'true';
   metaCard.setAttribute('title', 'Tocar para ver cumplimiento por tienda');
   metaCard.addEventListener('click', openStoreGoalModal);
+
+  setTimeout(function () {
+    hydrateGoalRankingFromCache();
+    if (typeof window.refreshDashboardRankings === 'function') window.refreshDashboardRankings(false);
+  }, 900);
 }
 
-function closeStoreGoalModal() { const modal = document.getElementById('storeGoalModalBackdrop'); if (modal) modal.remove(); }
+function closeStoreGoalModal() {
+  const modal = document.getElementById('storeGoalModalBackdrop');
+  if (modal) modal.remove();
+}
 
-async function openStoreGoalModal() {
+function openStoreGoalModal() {
   closeStoreGoalModal();
   const backdrop = document.createElement('div');
   backdrop.id = 'storeGoalModalBackdrop';
   backdrop.className = 'store-goal-modal-backdrop';
   backdrop.innerHTML = `
     <section class="store-goal-modal" role="dialog" aria-modal="true" aria-labelledby="storeGoalModalTitle">
-      <div class="store-goal-modal__header"><div><h3 class="store-goal-modal__title" id="storeGoalModalTitle">Cumplimiento por tienda</h3><p class="store-goal-modal__subtitle">Ordenado de mayor a menor cumplimiento.</p></div><button class="store-goal-modal__close" type="button" aria-label="Cerrar" onclick="closeStoreGoalModal()">×</button></div>
-      <div class="store-goal-modal__body" id="storeGoalModalBody"><div class="store-goal-loading">Cargando ranking de tiendas...</div></div>
+      <div class="store-goal-modal__header">
+        <div>
+          <h3 class="store-goal-modal__title" id="storeGoalModalTitle">Cumplimiento por tienda</h3>
+          <p class="store-goal-modal__subtitle">Ordenado de mayor a menor cumplimiento.</p>
+        </div>
+        <button class="store-goal-modal__close" type="button" aria-label="Cerrar" onclick="closeStoreGoalModal()">×</button>
+      </div>
+      <div class="store-goal-modal__body" id="storeGoalModalBody"></div>
     </section>`;
   backdrop.addEventListener('click', event => { if (event.target === backdrop) closeStoreGoalModal(); });
   document.body.appendChild(backdrop);
 
-  try {
-    const rows = await ensureGoalRankingRows();
-    renderStoreGoalRows(rows || []);
-  } catch (error) {
-    console.error('Error cargando ranking de cumplimiento:', error);
-    const body = document.getElementById('storeGoalModalBody');
-    if (body) body.innerHTML = '<div class="store-goal-error">No fue posible cargar el ranking. Revisa conexión con Apps Script.</div>';
+  const rows = hydrateGoalRankingFromCache();
+  renderStoreGoalRows(rows || []);
+
+  if (!rows.length && typeof window.refreshDashboardRankings === 'function') {
+    window.refreshDashboardRankings(false).then(function () {
+      if (document.getElementById('storeGoalModalBody')) {
+        renderStoreGoalRows(hydrateGoalRankingFromCache() || []);
+      }
+    });
   }
 }
 
 function renderStoreGoalRows(rows) {
   const body = document.getElementById('storeGoalModalBody');
   if (!body) return;
-  if (!rows.length) { body.innerHTML = '<div class="store-goal-empty">No hay tiendas para mostrar. Actualiza Apps Script y vuelve a cargar el dashboard.</div>'; return; }
+
+  if (!rows.length) {
+    body.innerHTML = '<div class="store-goal-empty">El ranking se está actualizando en segundo plano.<small>El dashboard puede seguir usándose mientras termina la consulta.</small></div>';
+    return;
+  }
+
   const selectedStore = normalizeStoreNameForCompare(currentStoreName);
   body.innerHTML = `<table class="store-goal-table"><thead><tr><th>Pos.</th><th>Tienda</th><th>Cómo va</th><th>Debería ir</th><th>Estado</th></tr></thead><tbody>${rows.map((row, index) => {
     const isSelected = selectedStore && normalizeStoreNameForCompare(row.tienda) === selectedStore;
@@ -182,4 +141,12 @@ function renderStoreGoalRows(rows) {
   }).join('')}</tbody></table>`;
 }
 
-(function initStoreGoalModalWhenReady() { if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', setupStoreGoalModal); else setupStoreGoalModal(); })();
+window.addEventListener('impulsoRankingsReady', function () {
+  hydrateGoalRankingFromCache();
+  if (document.getElementById('storeGoalModalBody')) renderStoreGoalRows(rankingCumplimientoTiendas || []);
+});
+
+(function initStoreGoalModalWhenReady() {
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', setupStoreGoalModal);
+  else setupStoreGoalModal();
+})();
