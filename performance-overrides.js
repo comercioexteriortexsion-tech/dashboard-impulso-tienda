@@ -2,10 +2,14 @@
   const CACHE_PREFIX = 'impulso_cache_v2_';
   const INITIAL_CACHE_KEY = CACHE_PREFIX + 'inicio';
   const STORE_CACHE_PREFIX = CACHE_PREFIX + 'tienda_';
-  const INITIAL_TTL_MS = 1000 * 60 * 60 * 8;
-  const STORE_TTL_MS = 1000 * 60 * 60 * 8;
-  const FAST_TIMEOUT_MS = 16000;
-  const STORE_TIMEOUT_MS = 24000;
+
+  const INITIAL_TTL_MS = 1000 * 60 * 60 * 12;
+  const STORE_TTL_MS = 1000 * 60 * 60 * 12;
+
+  const INITIAL_TIMEOUT_MS = 45000;
+  const INITIAL_FULL_TIMEOUT_MS = 60000;
+  const STORE_TIMEOUT_MS = 60000;
+  const SILENT_REFRESH_TIMEOUT_MS = 45000;
 
   function now() {
     return Date.now();
@@ -18,6 +22,10 @@
       .replace(/[\u0300-\u036f]/g, '')
       .replace(/[^a-z0-9]+/g, '_')
       .replace(/^_+|_+$/g, '');
+  }
+
+  function storeCacheKey(storeName) {
+    return STORE_CACHE_PREFIX + normalizeStoreKey(storeName);
   }
 
   function setCache(key, data) {
@@ -52,19 +60,15 @@
     }
   }
 
-  function storeCacheKey(storeName) {
-    return STORE_CACHE_PREFIX + normalizeStoreKey(storeName);
+  function makeTimeoutError(timeoutMs) {
+    return new Error('Apps Script no respondió dentro de ' + Math.round(timeoutMs / 1000) + ' segundos. Se intentó usar información guardada localmente.');
   }
 
-  function makeTimeoutError() {
-    return new Error('La consulta demoró más de lo esperado. Se intentó usar información guardada localmente.');
-  }
-
-  async function fetchJsonFast(url, timeoutMs) {
+  async function fetchJsonWithTimeout(url, timeoutMs) {
     const controller = new AbortController();
     const timer = setTimeout(function () {
       controller.abort();
-    }, timeoutMs || FAST_TIMEOUT_MS);
+    }, timeoutMs);
 
     try {
       const response = await fetch(url, {
@@ -79,7 +83,7 @@
       return await response.json();
     } catch (error) {
       if (error && error.name === 'AbortError') {
-        throw makeTimeoutError();
+        throw makeTimeoutError(timeoutMs);
       }
       throw error;
     } finally {
@@ -112,7 +116,7 @@
 
     return {
       ok: true,
-      version: 'inicio_frontend_optimizado_v2',
+      version: 'inicio_frontend_resiliente_v3',
       ultima_actualizacion:
         (inicioJson && inicioJson.ultima_actualizacion) ||
         (generalJson && generalJson.ultima_actualizacion) ||
@@ -122,9 +126,11 @@
       tiendas: tiendas,
       ranking_cumplimiento:
         (inicioJson && Array.isArray(inicioJson.ranking_cumplimiento) && inicioJson.ranking_cumplimiento) ||
+        (generalJson && Array.isArray(generalJson.ranking_cumplimiento) && generalJson.ranking_cumplimiento) ||
         [],
       ranking_alertas:
         (inicioJson && Array.isArray(inicioJson.ranking_alertas) && inicioJson.ranking_alertas) ||
+        (generalJson && Array.isArray(generalJson.ranking_alertas) && generalJson.ranking_alertas) ||
         []
     };
   }
@@ -141,6 +147,70 @@
     loadStoreSelector(storesList);
   }
 
+  async function fetchInitialLightPayload(timeoutMs) {
+    const results = await Promise.allSettled([
+      fetchJsonWithTimeout(buildApiUrl({ modo: 'general' }), timeoutMs),
+      fetchJsonWithTimeout(buildApiUrl({ modo: 'tiendas' }), timeoutMs)
+    ]);
+
+    const generalJson = results[0].status === 'fulfilled' ? results[0].value : null;
+    const tiendasJson = results[1].status === 'fulfilled' ? results[1].value : null;
+
+    validateGeneralPayload(generalJson);
+    validateStoresPayload(tiendasJson);
+
+    return mergeInitialPayload(null, generalJson, tiendasJson);
+  }
+
+  async function fetchInitialFullPayload(timeoutMs) {
+    const inicioJson = await fetchJsonWithTimeout(buildApiUrl({ modo: 'inicio', light: '1' }), timeoutMs);
+    validateInitialPayload(inicioJson);
+    return mergeInitialPayload(inicioJson, null, null);
+  }
+
+  async function refreshInitialSilently() {
+    try {
+      const payload = await fetchInitialLightPayload(SILENT_REFRESH_TIMEOUT_MS);
+      setCache(INITIAL_CACHE_KEY, payload);
+      if (!currentStoreName) {
+        applyInitialPayload(payload);
+        renderGeneralDashboard();
+      }
+    } catch (lightError) {
+      try {
+        const payload = await fetchInitialFullPayload(SILENT_REFRESH_TIMEOUT_MS);
+        setCache(INITIAL_CACHE_KEY, payload);
+        if (!currentStoreName) {
+          applyInitialPayload(payload);
+          renderGeneralDashboard();
+        }
+      } catch (fullError) {
+        console.warn('Actualización silenciosa inicial no disponible', fullError || lightError);
+      }
+    }
+  }
+
+  async function refreshStoreSilently(storeName) {
+    try {
+      const json = await fetchJsonWithTimeout(buildApiUrl({ modo: 'tienda', nombre: storeName }), SILENT_REFRESH_TIMEOUT_MS);
+      validateStorePayload(json, storeName);
+      const dashboard = normalizeOptimizedDashboard(json);
+      storeDashboards[storeName] = dashboard;
+      setCache(storeCacheKey(storeName), dashboard);
+
+      if (json.ultima_actualizacion) {
+        setText('ultimaActualizacion', formatDate(json.ultima_actualizacion) || 'Sin dato');
+      }
+
+      if (currentStoreName === storeName) {
+        renderDashboard(storeName);
+        showToast('Información de la tienda actualizada.');
+      }
+    } catch (e) {
+      console.warn('Actualización silenciosa de tienda no disponible', e);
+    }
+  }
+
   window.validateInitialPayload = function (json) {
     if (!json) throw new Error('Apps Script no devolvió respuesta.');
     if (json.ok !== true) throw new Error(json.error || 'Apps Script devolvió error.');
@@ -148,48 +218,63 @@
     if (!Array.isArray(json.tiendas)) throw new Error('Falta lista de tiendas.');
   };
 
+  const originalRenderErrorState = typeof renderErrorState === 'function' ? renderErrorState : null;
+  window.renderErrorState = function (title, description) {
+    const container = document.getElementById('mundoSeccionContainer');
+    if (container) {
+      container.innerHTML = `
+        <div class="empty-state empty-state--error" role="alert">
+          <p class="empty-state__title">${escapeHtml(title || 'No fue posible cargar la información')}</p>
+          <p class="empty-state__desc">${escapeHtml(description || 'Revisa la conexión o intenta actualizar de nuevo.')}</p>
+          ${lastLoadError ? `<p class="empty-state__desc error-detail">Detalle técnico: ${escapeHtml(lastLoadError)}</p>` : ''}
+          <button class="store-bar__change general-select-button" type="button" onclick="location.reload()">Volver a cargar</button>
+        </div>
+      `;
+      return;
+    }
+
+    if (originalRenderErrorState) {
+      originalRenderErrorState(title, description);
+    }
+  };
+
   window.loadInitialData = async function () {
     const cachedFresh = getCache(INITIAL_CACHE_KEY, INITIAL_TTL_MS);
     const cachedAny = getAnyCache(INITIAL_CACHE_KEY);
 
-    try {
-      const inicioJson = await fetchJsonFast(buildApiUrl({ modo: 'inicio', light: '1' }), FAST_TIMEOUT_MS);
-      validateInitialPayload(inicioJson);
-      const payload = mergeInitialPayload(inicioJson, null, null);
-      applyInitialPayload(payload);
-      setCache(INITIAL_CACHE_KEY, payload);
-      return payload;
-    } catch (inicioError) {
-      console.warn('modo=inicio no respondió rápido. Se intenta carga liviana.', inicioError);
+    if (cachedFresh) {
+      applyInitialPayload(cachedFresh);
+      setTimeout(refreshInitialSilently, 500);
+      return cachedFresh;
     }
 
     try {
-      const results = await Promise.allSettled([
-        fetchJsonFast(buildApiUrl({ modo: 'general' }), FAST_TIMEOUT_MS),
-        fetchJsonFast(buildApiUrl({ modo: 'tiendas' }), FAST_TIMEOUT_MS)
-      ]);
+      const payload = await fetchInitialLightPayload(INITIAL_TIMEOUT_MS);
+      applyInitialPayload(payload);
+      setCache(INITIAL_CACHE_KEY, payload);
+      setTimeout(refreshInitialSilently, 500);
+      return payload;
+    } catch (lightError) {
+      console.warn('Carga liviana inicial no respondió. Se intenta modo=inicio.', lightError);
+    }
 
-      const generalJson = results[0].status === 'fulfilled' ? results[0].value : null;
-      const tiendasJson = results[1].status === 'fulfilled' ? results[1].value : null;
-
-      validateGeneralPayload(generalJson);
-      validateStoresPayload(tiendasJson);
-
-      const payload = mergeInitialPayload(null, generalJson, tiendasJson);
+    try {
+      const payload = await fetchInitialFullPayload(INITIAL_FULL_TIMEOUT_MS);
       applyInitialPayload(payload);
       setCache(INITIAL_CACHE_KEY, payload);
       return payload;
-    } catch (fallbackError) {
-      console.warn('Carga liviana no respondió. Se usa cache local si existe.', fallbackError);
+    } catch (fullError) {
+      console.warn('Modo inicio no respondió. Se usa cache local si existe.', fullError);
 
-      const cached = cachedFresh || cachedAny;
+      const cached = cachedAny;
       if (cached) {
         applyInitialPayload(cached);
         showToast('Mostrando última información guardada. Actualiza de nuevo en unos segundos.');
+        setTimeout(refreshInitialSilently, 1000);
         return cached;
       }
 
-      throw fallbackError;
+      throw fullError;
     }
   };
 
@@ -202,28 +287,14 @@
 
     if (!forceRefresh && cachedFresh) {
       storeDashboards[storeName] = cachedFresh;
-      setTimeout(async function () {
-        try {
-          const json = await fetchJsonFast(buildApiUrl({ modo: 'tienda', nombre: storeName }), STORE_TIMEOUT_MS);
-          validateStorePayload(json, storeName);
-          const dashboard = normalizeOptimizedDashboard(json);
-          storeDashboards[storeName] = dashboard;
-          setCache(key, dashboard);
-          if (currentStoreName === storeName) {
-            renderDashboard(storeName);
-          }
-          if (json.ultima_actualizacion) {
-            setText('ultimaActualizacion', formatDate(json.ultima_actualizacion) || 'Sin dato');
-          }
-        } catch (e) {
-          console.warn('Actualización silenciosa de tienda no disponible', e);
-        }
-      }, 300);
+      setTimeout(function () {
+        refreshStoreSilently(storeName);
+      }, 500);
       return cachedFresh;
     }
 
     try {
-      const json = await fetchJsonFast(buildApiUrl({ modo: 'tienda', nombre: storeName }), STORE_TIMEOUT_MS);
+      const json = await fetchJsonWithTimeout(buildApiUrl({ modo: 'tienda', nombre: storeName }), STORE_TIMEOUT_MS);
       validateStorePayload(json, storeName);
 
       const dashboard = normalizeOptimizedDashboard(json);
@@ -240,6 +311,9 @@
       if (cached) {
         storeDashboards[storeName] = cached;
         showToast('Mostrando última información guardada de la tienda.');
+        setTimeout(function () {
+          refreshStoreSilently(storeName);
+        }, 1000);
         return cached;
       }
 
@@ -265,10 +339,12 @@
     updateActiveStoreUI(currentStoreName, false);
 
     try {
-      const cached = getCache(storeCacheKey(currentStoreName), STORE_TTL_MS);
+      const cached = getCache(storeCacheKey(currentStoreName), STORE_TTL_MS) || getAnyCache(storeCacheKey(currentStoreName));
+
       if (cached && !storeDashboards[currentStoreName]) {
         storeDashboards[currentStoreName] = cached;
         renderDashboard(currentStoreName);
+        showToast('Mostrando información guardada mientras se actualiza.');
       } else {
         showLoading(true, 'Cargando ' + currentStoreName + '...');
       }
