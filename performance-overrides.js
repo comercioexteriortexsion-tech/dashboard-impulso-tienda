@@ -10,6 +10,9 @@
   const INITIAL_FULL_TIMEOUT_MS = 60000;
   const STORE_TIMEOUT_MS = 60000;
   const SILENT_REFRESH_TIMEOUT_MS = 45000;
+  const RANKING_REFRESH_TIMEOUT_MS = 60000;
+
+  let rankingRefreshPromise = null;
 
   function now() {
     return Date.now();
@@ -60,6 +63,10 @@
     }
   }
 
+  function getInitialCacheAny() {
+    return getAnyCache(INITIAL_CACHE_KEY) || {};
+  }
+
   function makeTimeoutError(timeoutMs) {
     return new Error('Apps Script no respondió dentro de ' + Math.round(timeoutMs / 1000) + ' segundos. Se intentó usar información guardada localmente.');
   }
@@ -103,44 +110,103 @@
     if (!Array.isArray(json.tiendas)) throw new Error('Falta lista de tiendas en modo=tiendas.');
   }
 
+  function firstArray() {
+    for (let i = 0; i < arguments.length; i++) {
+      if (Array.isArray(arguments[i]) && arguments[i].length) return arguments[i];
+    }
+    for (let j = 0; j < arguments.length; j++) {
+      if (Array.isArray(arguments[j])) return arguments[j];
+    }
+    return [];
+  }
+
   function mergeInitialPayload(inicioJson, generalJson, tiendasJson) {
+    const cached = getInitialCacheAny();
+
     const resumen =
       (inicioJson && inicioJson.resumen_general) ||
       (generalJson && generalJson.resumen_general) ||
+      cached.resumen_general ||
       {};
 
-    const tiendas =
-      (inicioJson && Array.isArray(inicioJson.tiendas) && inicioJson.tiendas) ||
-      (tiendasJson && Array.isArray(tiendasJson.tiendas) && tiendasJson.tiendas) ||
-      [];
+    const tiendas = firstArray(
+      inicioJson && inicioJson.tiendas,
+      tiendasJson && tiendasJson.tiendas,
+      cached.tiendas
+    );
+
+    const rankingCumplimiento = firstArray(
+      inicioJson && inicioJson.ranking_cumplimiento,
+      generalJson && generalJson.ranking_cumplimiento,
+      cached.ranking_cumplimiento
+    );
+
+    const rankingAlertas = firstArray(
+      inicioJson && inicioJson.ranking_alertas,
+      generalJson && generalJson.ranking_alertas,
+      cached.ranking_alertas
+    );
 
     return {
       ok: true,
-      version: 'inicio_frontend_resiliente_v3',
+      version: 'inicio_frontend_resiliente_v4_rankings_cache',
       ultima_actualizacion:
         (inicioJson && inicioJson.ultima_actualizacion) ||
         (generalJson && generalJson.ultima_actualizacion) ||
         (tiendasJson && tiendasJson.ultima_actualizacion) ||
+        cached.ultima_actualizacion ||
         '',
       resumen_general: resumen,
       tiendas: tiendas,
-      ranking_cumplimiento:
-        (inicioJson && Array.isArray(inicioJson.ranking_cumplimiento) && inicioJson.ranking_cumplimiento) ||
-        (generalJson && Array.isArray(generalJson.ranking_cumplimiento) && generalJson.ranking_cumplimiento) ||
-        [],
-      ranking_alertas:
-        (inicioJson && Array.isArray(inicioJson.ranking_alertas) && inicioJson.ranking_alertas) ||
-        (generalJson && Array.isArray(generalJson.ranking_alertas) && generalJson.ranking_alertas) ||
-        []
+      ranking_cumplimiento: rankingCumplimiento,
+      ranking_alertas: rankingAlertas
     };
+  }
+
+  function hasRankings(payload) {
+    return !!payload && (
+      (Array.isArray(payload.ranking_cumplimiento) && payload.ranking_cumplimiento.length) ||
+      (Array.isArray(payload.ranking_alertas) && payload.ranking_alertas.length)
+    );
+  }
+
+  function hydrateRankingsFromPayload(payload) {
+    if (!payload) return false;
+    let changed = false;
+
+    if (Array.isArray(payload.ranking_cumplimiento) && payload.ranking_cumplimiento.length) {
+      rankingCumplimientoTiendas = normalizeRankingCumplimiento(payload.ranking_cumplimiento);
+      changed = true;
+    }
+
+    if (Array.isArray(payload.ranking_alertas) && payload.ranking_alertas.length) {
+      rankingAlertasTiendas = normalizeRankingAlertas(payload.ranking_alertas);
+      changed = true;
+    }
+
+    if (changed) {
+      window.dispatchEvent(new CustomEvent('impulsoRankingsReady'));
+    }
+
+    return changed;
   }
 
   function applyInitialPayload(json) {
     storeDashboards = {};
     storesList = Array.isArray(json.tiendas) ? json.tiendas.filter(Boolean) : [];
     generalSummary = normalizeSummary(json.resumen_general || {});
-    rankingCumplimientoTiendas = normalizeRankingCumplimiento(json.ranking_cumplimiento || []);
-    rankingAlertasTiendas = normalizeRankingAlertas(json.ranking_alertas || []);
+
+    const hasRankingCumplimiento = Array.isArray(json.ranking_cumplimiento) && json.ranking_cumplimiento.length;
+    const hasRankingAlertas = Array.isArray(json.ranking_alertas) && json.ranking_alertas.length;
+
+    if (hasRankingCumplimiento || !Array.isArray(rankingCumplimientoTiendas) || !rankingCumplimientoTiendas.length) {
+      rankingCumplimientoTiendas = normalizeRankingCumplimiento(json.ranking_cumplimiento || []);
+    }
+
+    if (hasRankingAlertas || !Array.isArray(rankingAlertasTiendas) || !rankingAlertasTiendas.length) {
+      rankingAlertasTiendas = normalizeRankingAlertas(json.ranking_alertas || []);
+    }
+
     lastLoadError = '';
 
     setText('ultimaActualizacion', formatDate(json.ultima_actualizacion) || 'Sin dato');
@@ -168,18 +234,57 @@
     return mergeInitialPayload(inicioJson, null, null);
   }
 
+  async function refreshRankingsSilently(force) {
+    if (rankingRefreshPromise && !force) return rankingRefreshPromise;
+
+    rankingRefreshPromise = (async function () {
+      try {
+        const payload = await fetchInitialFullPayload(RANKING_REFRESH_TIMEOUT_MS);
+        if (!hasRankings(payload)) return payload;
+
+        const cached = getInitialCacheAny();
+        const merged = Object.assign({}, cached, payload, {
+          resumen_general: payload.resumen_general || cached.resumen_general || {},
+          tiendas: Array.isArray(payload.tiendas) && payload.tiendas.length ? payload.tiendas : (cached.tiendas || []),
+          ranking_cumplimiento: Array.isArray(payload.ranking_cumplimiento) && payload.ranking_cumplimiento.length ? payload.ranking_cumplimiento : (cached.ranking_cumplimiento || []),
+          ranking_alertas: Array.isArray(payload.ranking_alertas) && payload.ranking_alertas.length ? payload.ranking_alertas : (cached.ranking_alertas || [])
+        });
+
+        setCache(INITIAL_CACHE_KEY, merged);
+        hydrateRankingsFromPayload(merged);
+        return merged;
+      } catch (error) {
+        console.warn('Ranking de tiendas no disponible en segundo plano', error);
+        return getInitialCacheAny();
+      } finally {
+        setTimeout(function () {
+          rankingRefreshPromise = null;
+        }, 500);
+      }
+    })();
+
+    return rankingRefreshPromise;
+  }
+
   async function refreshInitialSilently() {
     try {
       const payload = await fetchInitialLightPayload(SILENT_REFRESH_TIMEOUT_MS);
       setCache(INITIAL_CACHE_KEY, payload);
+      hydrateRankingsFromPayload(payload);
+
       if (!currentStoreName) {
         applyInitialPayload(payload);
         renderGeneralDashboard();
       }
+
+      setTimeout(function () {
+        refreshRankingsSilently(false);
+      }, 800);
     } catch (lightError) {
       try {
         const payload = await fetchInitialFullPayload(SILENT_REFRESH_TIMEOUT_MS);
         setCache(INITIAL_CACHE_KEY, payload);
+        hydrateRankingsFromPayload(payload);
         if (!currentStoreName) {
           applyInitialPayload(payload);
           renderGeneralDashboard();
@@ -218,6 +323,14 @@
     if (!Array.isArray(json.tiendas)) throw new Error('Falta lista de tiendas.');
   };
 
+  window.getDashboardInitialCache = function () {
+    return getInitialCacheAny();
+  };
+
+  window.refreshDashboardRankings = function (force) {
+    return refreshRankingsSilently(!!force);
+  };
+
   const originalRenderErrorState = typeof renderErrorState === 'function' ? renderErrorState : null;
   window.renderErrorState = function (title, description) {
     const container = document.getElementById('mundoSeccionContainer');
@@ -244,7 +357,11 @@
 
     if (cachedFresh) {
       applyInitialPayload(cachedFresh);
+      hydrateRankingsFromPayload(cachedFresh);
       setTimeout(refreshInitialSilently, 500);
+      setTimeout(function () {
+        refreshRankingsSilently(false);
+      }, 1200);
       return cachedFresh;
     }
 
@@ -252,7 +369,11 @@
       const payload = await fetchInitialLightPayload(INITIAL_TIMEOUT_MS);
       applyInitialPayload(payload);
       setCache(INITIAL_CACHE_KEY, payload);
+      hydrateRankingsFromPayload(payload);
       setTimeout(refreshInitialSilently, 500);
+      setTimeout(function () {
+        refreshRankingsSilently(false);
+      }, 1200);
       return payload;
     } catch (lightError) {
       console.warn('Carga liviana inicial no respondió. Se intenta modo=inicio.', lightError);
@@ -262,6 +383,7 @@
       const payload = await fetchInitialFullPayload(INITIAL_FULL_TIMEOUT_MS);
       applyInitialPayload(payload);
       setCache(INITIAL_CACHE_KEY, payload);
+      hydrateRankingsFromPayload(payload);
       return payload;
     } catch (fullError) {
       console.warn('Modo inicio no respondió. Se usa cache local si existe.', fullError);
@@ -269,8 +391,12 @@
       const cached = cachedAny;
       if (cached) {
         applyInitialPayload(cached);
+        hydrateRankingsFromPayload(cached);
         showToast('Mostrando última información guardada. Actualiza de nuevo en unos segundos.');
         setTimeout(refreshInitialSilently, 1000);
+        setTimeout(function () {
+          refreshRankingsSilently(false);
+        }, 1800);
         return cached;
       }
 
